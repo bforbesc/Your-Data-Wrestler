@@ -1,0 +1,7 @@
+
+- change title and icon, find better icon and title
+- Plotly plots theme in line with app
+- generate code to replicate plots
+- save image as png
+- improve suggestions prompts
+- fix bug with suggestions not being applied
