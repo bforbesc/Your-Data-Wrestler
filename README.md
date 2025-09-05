@@ -1,4 +1,4 @@
-# Your Data Wrestler 🤼
+# 🤼 Your Data Wrestler 
 
 An intelligent Streamlit application that transforms raw data into actionable insights through AI-powered analysis, automated cleaning, and dynamic visualizations.
 
