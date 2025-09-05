@@ -14,11 +14,78 @@ import hashlib
 import json
 from functools import lru_cache
 
+# ----------------------
+# JSON parsing utilities
+# ----------------------
+def _extract_json_block(text: str) -> Optional[str]:
+    """Best-effort extraction of a JSON object from an LLM response.
+
+    Looks for the first '{' and the last '}' and attempts to parse that slice.
+    Also handles fenced code blocks like ```json ... ``` by stripping fences.
+    """
+    if text is None:
+        return None
+
+    cleaned = text.strip()
+
+    # Strip fenced code block wrappers if present
+    if cleaned.startswith("```"):
+        # Remove first fence line
+        lines = cleaned.splitlines()
+        # Drop the opening fence (possibly with a language tag)
+        if lines:
+            lines = lines[1:]
+        # Drop a trailing closing fence if present
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    # Fallback: slice from first '{' to last '}'
+    start = cleaned.find('{')
+    end = cleaned.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        return cleaned[start:end + 1]
+
+    return None
+
+def _parse_json_safe(text: str) -> Optional[dict]:
+    """Try to parse JSON from text; return dict or None on failure."""
+    if not text:
+        return None
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # Try extracting a JSON-looking block
+    block = _extract_json_block(text)
+    if block is None:
+        return None
+    try:
+        return json.loads(block)
+    except Exception:
+        return None
+
 # Load environment variables from .env file
 load_dotenv()
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# Lazy OpenAI client initialization to avoid crashes when SSL/CA bundle is misconfigured
+_openai_client = None
+
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        return None
+    try:
+        _openai_client = OpenAI(api_key=api_key)
+        return _openai_client
+    except Exception:
+        # If client cannot be created (e.g., SSL CA path invalid), disable AI features gracefully
+        return None
 
 # Cache for storing API responses
 response_cache = {}
@@ -36,6 +103,9 @@ def get_openai_response(prompt: str) -> str:
     if cache_key in response_cache:
         return response_cache[cache_key]
     
+    client = _get_openai_client()
+    if client is None:
+        return ""
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -50,7 +120,7 @@ def get_openai_response(prompt: str) -> str:
         return result
     except Exception as e:
         print(f"Error calling OpenAI API: {str(e)}")
-        return "Error: Unable to get response from OpenAI API. Please check your API key and internet connection."
+        return ""
 
 def get_dataset_info(df: pd.DataFrame) -> Dict:
     """Get basic information about the dataset."""
@@ -89,37 +159,42 @@ def get_cleaning_suggestions(df: pd.DataFrame, domain: str) -> dict:
     )
     response = get_openai_response(prompt)
     
-    # Parse the response to extract structured suggestions
-    prompt = f"""Format these cleaning suggestions as JSON:
-{response}
-
-Structure:
+    # Ask the model to return strict JSON
+    formatting_prompt = f"""Return ONLY valid JSON (no prose, no markdown). Use this schema:
 {{
-    "description": "Brief explanation",
-    "options": [
-        {{
-            "label": "Action label",
-            "description": "Brief explanation",
-            "default": true/false
-        }}
+  "description": "Brief explanation",
+  "options": [
+    {{ "label": "Action label", "description": "Brief explanation", "default": true }}
+  ]
+}}
+
+Suggestions to format:
+{response}
+"""
+
+    structured_response = get_openai_response(formatting_prompt)
+    parsed = _parse_json_safe(structured_response)
+
+    default_options = [
+        {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
+        {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
+        {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
+        {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
+        {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
     ]
-}}"""
-    
-    try:
-        structured_response = get_openai_response(prompt)
-        return json.loads(structured_response)
-    except:
-        # Fallback to default structure if parsing fails
-        return {
-            "description": response,
-            "options": [
-                {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
-                {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
-                {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
-                {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
-                {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
-            ]
-        }
+
+    if isinstance(parsed, dict):
+        description = parsed.get("description") or (response if isinstance(response, str) else "Data cleaning suggestions")
+        options = parsed.get("options")
+        if not isinstance(options, list) or not options:
+            options = default_options
+        return {"description": description, "options": options}
+
+    # Fallback to default structure if parsing fails
+    return {
+        "description": response if isinstance(response, str) else "Data cleaning suggestions",
+        "options": default_options
+    }
 
 def get_visualization_suggestions(df: pd.DataFrame, domain: str) -> dict:
     """Get visualization suggestions using OpenAI API with optimized prompt."""
@@ -157,14 +232,14 @@ Make sure to:
 2. Keep the descriptions specific to this dataset
 3. Include all relevant details from the suggestions"""
     
-    try:
-        structured_response = get_openai_response(prompt)
-        return json.loads(structured_response)
-    except:
-        # Fallback to default structure if parsing fails
-        return {
-            "description": response,
-            "options": [
+    structured_response = get_openai_response(prompt)
+    parsed = _parse_json_safe(structured_response)
+    if isinstance(parsed, dict):
+        # Ensure required keys exist
+        description = parsed.get("description") or (response if isinstance(response, str) else "Visualization suggestions")
+        options = parsed.get("options")
+        if not isinstance(options, list) or not options:
+            options = [
                 {
                     "type": "histogram",
                     "label": "Distribution Analysis",
@@ -187,7 +262,35 @@ Make sure to:
                     "default": True
                 }
             ]
-        }
+        return {"description": description, "options": options}
+
+    # Fallback to default structure if parsing fails
+    return {
+        "description": response,
+        "options": [
+            {
+                "type": "histogram",
+                "label": "Distribution Analysis",
+                "description": "Shows the distribution of numerical variables",
+                "columns": [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])],
+                "default": True
+            },
+            {
+                "type": "scatter",
+                "label": "Relationship Analysis",
+                "description": "Shows relationships between numerical variables",
+                "columns": [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])],
+                "default": True
+            },
+            {
+                "type": "bar",
+                "label": "Categorical Analysis",
+                "description": "Shows frequency of categorical variables",
+                "columns": [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])],
+                "default": True
+            }
+        ]
+    }
 
 def get_plot_labels(df: pd.DataFrame, plot_type: str, x_col: str, y_col: Optional[str] = None) -> Dict[str, str]:
     """Generate better plot labels using OpenAI with optimized prompt."""
@@ -225,33 +328,48 @@ def create_visualization(df: pd.DataFrame, plot_type: str, x_col: str, y_col: Op
     is_time_series = pd.api.types.is_datetime64_any_dtype(df[x_col])
     
     if plot_type == "bar":
-        fig = px.bar(df, x=x_col, y=y_col if y_col else None)
+        if y_col:
+            # Use graph_objects to avoid express validators issues
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=df[x_col], y=df[y_col]))
+        else:
+            # Compute counts per category explicitly to avoid issues with None y
+            counts = (
+                df[x_col]
+                .astype(str)
+                .fillna("<NA>")
+                .value_counts(dropna=False)
+                .reset_index()
+            )
+            counts.columns = [x_col, "count"]
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=counts[x_col], y=counts["count"]))
     elif plot_type == "histogram":
-        fig = px.histogram(df, x=x_col)
+        fig = px.histogram(df, x=x_col, color_discrete_sequence=COLORWAY)
     elif plot_type == "box":
-        fig = px.box(df, x=x_col, y=y_col if y_col else None)
+        fig = px.box(df, x=x_col, y=y_col if y_col else None, color_discrete_sequence=COLORWAY)
     elif plot_type == "scatter":
         if not y_col:
             raise ValueError("y_col is required for scatter plot")
-        fig = px.scatter(df, x=x_col, y=y_col)
+        fig = px.scatter(df, x=x_col, y=y_col, color_discrete_sequence=COLORWAY)
     elif plot_type == "line" and is_time_series:
         # For time series data, create a line plot
-        fig = px.line(df, x=x_col, y=y_col if y_col else None)
+        fig = px.line(df, x=x_col, y=y_col if y_col else None, color_discrete_sequence=COLORWAY)
     else:
         raise ValueError(f"Unsupported plot type: {plot_type}")
     
-    # Update layout with better labels
+    # Update layout with better labels; rely on Plotly defaults for colors/styles
     fig.update_layout(
         title=labels['title'],
         xaxis_title=labels['xaxis'],
         yaxis_title=labels['yaxis'],
-        template="plotly_white",
+        template=None,
         font=dict(size=12),
         margin=dict(t=50, l=50, r=50, b=50),
         showlegend=True
     )
     
-    # Add hover template
+    # Add hover template only (let Plotly handle trace colors via color_discrete_sequence)
     if is_time_series:
         fig.update_traces(
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>%{y}<extra></extra>"
@@ -291,5 +409,8 @@ Rows: {info['num_rows']}
 
 Respond with domain (e.g., "Healthcare - Patient Records", "E-commerce - Sales")."""
     
-    domain = get_openai_response(prompt).strip()
-    return domain 
+    domain = get_openai_response(prompt)
+    if isinstance(domain, str) and domain.strip():
+        return domain.strip()
+    # Fallback domain if AI unavailable
+    return "General - Tabular Data"

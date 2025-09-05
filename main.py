@@ -18,8 +18,8 @@ import os
 
 # Page config
 st.set_page_config(
-    page_title="Data Analysis Assistant",
-    page_icon="📊",
+    page_title="Your Data Wrestler",
+    page_icon="🤼‍♀️",
     layout="wide"
 )
 
@@ -45,9 +45,13 @@ if "domain" not in st.session_state:
     st.session_state.domain = "Analyzing data to determine domain..."
 if "editing_domain" not in st.session_state:
     st.session_state.editing_domain = False
+if "generated_figs" not in st.session_state:
+    st.session_state.generated_figs = []  # list of dicts: {"fig": go.Figure, "label": str, "filename": str}
+if "custom_figs" not in st.session_state:
+    st.session_state.custom_figs = []
 
 # Main content
-st.title("Data Analysis Assistant")
+st.title("Your Data Wrestler")
 st.write("Upload a file to begin analyzing your data.")
 
 # File uploader
@@ -164,23 +168,66 @@ if uploaded_file is not None:
                     }
         
         if isinstance(st.session_state.cleaning_suggestions, dict) and "description" in st.session_state.cleaning_suggestions:
-            st.write(st.session_state.cleaning_suggestions["description"])
+            # Determine if there are any supported actions; if none, show clean message here too
+            _allowed_labels_preview = {
+                "Remove columns with >50% missing values",
+                "Fill missing values with mean (numeric) or mode (categorical)",
+                "Remove duplicate rows",
+                "Convert string columns to lowercase",
+                "Remove leading/trailing whitespace",
+            }
+            _options = st.session_state.cleaning_suggestions.get("options", [])
+            _supported_exists = any(
+                isinstance(opt, dict) and opt.get("label") in _allowed_labels_preview for opt in _options
+            )
+            if _supported_exists:
+                st.write(st.session_state.cleaning_suggestions["description"])
+            else:
+                st.success("Dataset appears clean ✅ No cleaning actions recommended.")
         else:
-            st.error("Invalid cleaning suggestions format. Please try refreshing the page.")
-            st.session_state.cleaning_suggestions = None
+            st.warning("Cleaning suggestions were malformed; using safe defaults.")
+            st.session_state.cleaning_suggestions = {
+                "description": "Default cleaning suggestions applied.",
+                "options": [
+                    {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
+                    {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
+                    {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
+                    {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
+                    {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
+                ]
+            }
         
         # Data cleaning options
         st.subheader("Apply Data Cleaning")
         selected_options = {}
         
         if isinstance(st.session_state.cleaning_suggestions, dict) and "options" in st.session_state.cleaning_suggestions:
-            for option in st.session_state.cleaning_suggestions["options"]:
-                selected_options[option["label"]] = st.checkbox(
-                    f"{option['label']} - {option['description']}", 
-                    value=option["default"]
-                )
+            # Only show supported cleaning actions
+            ALLOWED_CLEANING_LABELS = {
+                "Remove columns with >50% missing values",
+                "Fill missing values with mean (numeric) or mode (categorical)",
+                "Remove duplicate rows",
+                "Convert string columns to lowercase",
+                "Remove leading/trailing whitespace",
+            }
+
+            filtered_options = [
+                opt for opt in st.session_state.cleaning_suggestions["options"]
+                if isinstance(opt, dict) and opt.get("label") in ALLOWED_CLEANING_LABELS
+            ]
+
+            if not filtered_options:
+                st.success("Dataset appears clean ✅ No cleaning actions recommended.")
+                filtered_options = []
+
+            if filtered_options:
+                for option in filtered_options:
+                    selected_options[option["label"]] = st.checkbox(
+                        f"{option['label']} - {option['description']}", 
+                        value=option.get("default", False)
+                    )
             
-            if st.button("Apply Selected Cleaning"):
+            if filtered_options and st.button("Apply Selected Cleaning"):
                 cleaned_df = df.copy()
                 
                 if selected_options.get("Remove columns with >50% missing values", False):
@@ -190,10 +237,18 @@ if uploaded_file is not None:
                 
                 if selected_options.get("Fill missing values with mean (numeric) or mode (categorical)", False):
                     for col in cleaned_df.columns:
-                        if cleaned_df[col].dtype in ['int64', 'float64']:
-                            cleaned_df[col] = cleaned_df[col].fillna(cleaned_df[col].mean())
+                        if pd.api.types.is_numeric_dtype(cleaned_df[col]):
+                            try:
+                                cleaned_df[col] = cleaned_df[col].fillna(cleaned_df[col].astype(float).mean())
+                            except Exception:
+                                cleaned_df[col] = cleaned_df[col].fillna(cleaned_df[col].mean())
                         else:
-                            cleaned_df[col] = cleaned_df[col].fillna(cleaned_df[col].mode()[0])
+                            try:
+                                mode_series = cleaned_df[col].mode()
+                                if not mode_series.empty:
+                                    cleaned_df[col] = cleaned_df[col].fillna(mode_series.iloc[0])
+                            except Exception:
+                                pass
                 
                 if selected_options.get("Remove duplicate rows", False):
                     cleaned_df = cleaned_df.drop_duplicates()
@@ -208,6 +263,20 @@ if uploaded_file is not None:
                         if cleaned_df[col].dtype == 'object':
                             cleaned_df[col] = cleaned_df[col].str.strip()
                 
+                # Show a quick preview of cleaned data
+                st.subheader("Cleaned Data Preview")
+                st.dataframe(
+                    cleaned_df.head(100),
+                    use_container_width=True,
+                    height=300,
+                    hide_index=True
+                )
+
+                # Option to replace current dataset with cleaned version
+                if st.checkbox("Replace current dataset with cleaned version"):
+                    st.session_state.df = cleaned_df
+                    st.success("Replaced dataset with cleaned version. Subsequent analyses will use cleaned data.")
+
                 # Download button for cleaned data
                 csv = cleaned_df.to_csv(index=False)
                 original_filename = uploaded_file.name
@@ -219,8 +288,17 @@ if uploaded_file is not None:
                     mime='text/csv'
                 )
         else:
-            st.error("No cleaning options available. Please try refreshing the page.")
-            st.session_state.cleaning_suggestions = None
+            st.warning("No cleaning options found; using safe defaults.")
+            st.session_state.cleaning_suggestions = {
+                "description": "Default cleaning suggestions applied.",
+                "options": [
+                    {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
+                    {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
+                    {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
+                    {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
+                    {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
+                ]
+            }
     
     # Data Visualization Section
     if show_visualization:
@@ -279,57 +357,26 @@ if uploaded_file is not None:
                 )
             
             if st.button("Generate Selected Visualizations"):
+                new_figs = []
                 for viz_type, selected in selected_visualizations.items():
                     if selected:
-                        # Find the corresponding option
                         option = next((opt for opt in st.session_state.visualization_suggestions["options"] if opt["label"] == viz_type), None)
                         if option and option["columns"]:
                             if option["type"] == "histogram":
                                 for col in option["columns"]:
                                     fig = create_visualization(df, "histogram", col)
-                                    st.plotly_chart(fig, use_container_width=True)
-                                    # Add download button for the plot
-                                    try:
-                                        html = fig.to_html(include_plotlyjs='cdn')
-                                        st.download_button(
-                                            label=f"Download {col} Distribution as HTML",
-                                            data=html,
-                                            file_name=f"histogram_{col}.html",
-                                            mime="text/html"
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Error saving plot: {str(e)}")
+                                    new_figs.append({"fig": fig, "label": f"{col} Distribution", "filename": f"histogram_{col}"})
                             elif option["type"] == "scatter":
                                 for i, col1 in enumerate(option["columns"]):
                                     for col2 in option["columns"][i+1:]:
                                         fig = create_visualization(df, "scatter", col1, col2)
-                                        st.plotly_chart(fig, use_container_width=True)
-                                        # Add download button for the plot
-                                        try:
-                                            html = fig.to_html(include_plotlyjs='cdn')
-                                            st.download_button(
-                                                label=f"Download {col1} vs {col2} Scatter Plot as HTML",
-                                                data=html,
-                                                file_name=f"scatter_{col1}_{col2}.html",
-                                                mime="text/html"
-                                            )
-                                        except Exception as e:
-                                            st.error(f"Error saving plot: {str(e)}")
+                                        new_figs.append({"fig": fig, "label": f"{col1} vs {col2} Scatter", "filename": f"scatter_{col1}_{col2}"})
                             elif option["type"] == "bar":
                                 for col in option["columns"]:
                                     fig = create_visualization(df, "bar", col)
-                                    st.plotly_chart(fig, use_container_width=True)
-                                    # Add download button for the plot
-                                    try:
-                                        html = fig.to_html(include_plotlyjs='cdn')
-                                        st.download_button(
-                                            label=f"Download {col} Bar Chart as HTML",
-                                            data=html,
-                                            file_name=f"bar_{col}.html",
-                                            mime="text/html"
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Error saving plot: {str(e)}")
+                                    new_figs.append({"fig": fig, "label": f"{col} Bar Chart", "filename": f"bar_{col}"})
+                st.session_state.generated_figs.extend(new_figs)
+                st.rerun()
         else:
             st.error("No visualization options available. Please try refreshing the page.")
             st.session_state.visualization_suggestions = None
@@ -359,18 +406,45 @@ if uploaded_file is not None:
         if st.button("Generate Custom Plot"):
             try:
                 fig = create_visualization(df, plot_type, x_col, y_col)
+                st.session_state.custom_figs.append({
+                    "fig": fig,
+                    "label": f"Custom: {plot_type.title()} - {x_col}{(' vs ' + y_col) if y_col else ''}",
+                    "filename": f"{plot_type}_{x_col}_{y_col if y_col else 'count'}"
+                })
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error creating visualization: {str(e)}")
+
+        # Render saved figures with download buttons so they persist after downloads
+        def _render_saved_figs(title: str, items: list):
+            if not items:
+                return
+            st.subheader(title)
+            for item in items:
+                fig = item.get("fig")
+                label = item.get("label", "Plot")
+                base = item.get("filename", "plot")
                 st.plotly_chart(fig, use_container_width=True)
-                
-                # Add download button for the plot
                 try:
                     html = fig.to_html(include_plotlyjs='cdn')
                     st.download_button(
-                        label="Download Plot as HTML",
+                        label=f"Download {label} as HTML",
                         data=html,
-                        file_name=f"{plot_type}_{x_col}_{y_col if y_col else 'count'}.html",
+                        file_name=f"{base}.html",
                         mime="text/html"
                     )
-                except Exception as e:
-                    st.error(f"Error saving plot: {str(e)}")
-            except Exception as e:
-                st.error(f"Error creating visualization: {str(e)}") 
+                    try:
+                        png_bytes = fig.to_image(format="png", scale=2)
+                        st.download_button(
+                            label=f"Download {label} as PNG",
+                            data=png_bytes,
+                            file_name=f"{base}.png",
+                            mime="image/png"
+                        )
+                    except Exception as e_png:
+                        st.error(f"Error exporting PNG: {str(e_png)}")
+                except Exception as e_html:
+                    st.error(f"Error saving plot: {str(e_html)}")
+
+        _render_saved_figs("Generated Visualizations", st.session_state.generated_figs)
+        _render_saved_figs("Custom Visualizations", st.session_state.custom_figs)
