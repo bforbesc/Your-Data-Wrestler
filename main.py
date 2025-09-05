@@ -1,3 +1,4 @@
+
 """
 Main Streamlit app for interactive data analysis.
 """
@@ -164,32 +165,22 @@ if uploaded_file is not None:
         # Cleaning suggestions
         st.subheader("Data Cleaning Suggestions")
         
-        # Check if this is already a cleaned dataset
-        is_cleaned_dataset = any(keyword in uploaded_file.name.lower() for keyword in ['_cleaned', '_clean', 'cleaned', 'clean'])
-        
         if st.session_state.cleaning_suggestions is None:
-            if is_cleaned_dataset:
-                # Skip cleaning suggestions for already cleaned datasets
-                st.session_state.cleaning_suggestions = {
-                    "description": "This appears to be a cleaned dataset.",
-                    "options": []
-                }
-            else:
-                with st.spinner("Generating cleaning suggestions..."):
-                    try:
-                        st.session_state.cleaning_suggestions = get_cleaning_suggestions(df, st.session_state.domain)
-                    except Exception as e:
-                        st.error(f"Error generating cleaning suggestions: {str(e)}")
-                        st.session_state.cleaning_suggestions = {
-                            "description": "Unable to generate cleaning suggestions. Please try again.",
-                            "options": [
-                                {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
-                                {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
-                                {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
-                                {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
-                                {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
-                            ]
-                        }
+            with st.spinner("Generating cleaning suggestions..."):
+                try:
+                    st.session_state.cleaning_suggestions = get_cleaning_suggestions(df, st.session_state.domain)
+                except Exception as e:
+                    st.error(f"Error generating cleaning suggestions: {str(e)}")
+                    st.session_state.cleaning_suggestions = {
+                        "description": "Unable to generate cleaning suggestions. Please try again.",
+                        "options": [
+                            {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
+                            {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
+                            {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
+                            {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
+                            {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
+                        ]
+                    }
         
         # Check if we have cleaning suggestions and determine if dataset is clean
         dataset_needs_cleaning = False
@@ -217,7 +208,9 @@ if uploaded_file is not None:
                 st.write(st.session_state.cleaning_suggestions["description"])
                 dataset_needs_cleaning = True
             else:
+                # Force clean message if no applicable actions found
                 st.success("Dataset appears clean ✅ No cleaning actions recommended.")
+                dataset_needs_cleaning = False
         else:
             st.warning("Cleaning suggestions were malformed; checking what's actually needed.")
             # Import the function we need

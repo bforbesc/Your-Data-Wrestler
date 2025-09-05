@@ -12,7 +12,7 @@ Question: {question}
 
 Provide concise answer. If visualization needed, suggest plot type."""
 
-CLEANING_SUGGESTIONS_PROMPT = """Analyze this dataset and suggest EXACTLY 3-5 specific data cleaning actions:
+CLEANING_SUGGESTIONS_PROMPT = """Analyze this dataset and suggest data cleaning actions:
 Rows: {num_rows}
 Cols: {num_cols}
 Info: {column_info}
@@ -20,12 +20,12 @@ Missing: {missing_values}
 Domain: {domain}
 
 CRITICAL REQUIREMENTS:
-1. Suggest EXACTLY 3-5 cleaning actions (no more, no less)
-2. Use ONLY these exact cleaning action types: remove_high_missing, fill_missing, remove_duplicates, lowercase_strings, strip_whitespace, convert_numeric, remove_outliers, standardize_dates, remove_empty_rows, fix_data_types
-3. Each suggestion must specify EXACT column names from the dataset when applicable
-4. Each suggestion must be unique and non-overlapping
-5. ONLY suggest actions that are ACTUALLY NEEDED - be very conservative
-6. If the dataset is already clean, suggest fewer actions (even 0-2 if appropriate)
+1. If the dataset appears CLEAN and well-structured, respond with: "no_clean_needed"
+2. If cleaning is needed, suggest EXACTLY 3-5 specific cleaning actions
+3. Use ONLY these exact cleaning action types: remove_high_missing, fill_missing, remove_duplicates, lowercase_strings, strip_whitespace, convert_numeric, remove_outliers, standardize_dates, remove_empty_rows, fix_data_types
+4. Each suggestion must specify EXACT column names from the dataset when applicable
+5. Each suggestion must be unique and non-overlapping
+6. ONLY suggest actions that are ACTUALLY NEEDED - be very conservative
 
 CLEANING ACTION RULES:
 - remove_high_missing: Use ONLY when columns have >50% missing values (specify column names)
@@ -55,10 +55,11 @@ Example format for dirty data:
 5. convert_numeric of 'price', 'quantity' - Converts string numbers to proper numeric format
 
 Example format for clean data:
-1. remove_duplicates - Removes duplicate rows from dataset
-(Only suggest actions that are actually needed!)
+no_clean_needed
 
-Generate exactly 3-5 suggestions following this format."""
+IMPORTANT: If the data looks clean, well-structured, and ready for analysis, respond with exactly "no_clean_needed" (no other text).
+
+Generate suggestions following this format."""
 
 VISUALIZATION_SUGGESTIONS_PROMPT = """Analyze this dataset and suggest EXACTLY 3-5 specific visualizations:
 Rows: {num_rows}

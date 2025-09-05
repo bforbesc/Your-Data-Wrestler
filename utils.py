@@ -231,6 +231,10 @@ def _parse_cleaning_suggestions(response: str, df: pd.DataFrame) -> list:
         "Fix incorrect data types": "Convert columns to their appropriate data types"
     }
     
+    # Check if the AI response indicates no cleaning is needed
+    if "no_clean_needed" in response.lower():
+        return []  # Return empty list to indicate no cleaning needed
+    
     # If the AI response is empty or malformed, fall back to checking what's actually needed
     if not response or len(response.strip()) < 10:
         return _get_applicable_cleaning_actions(df, action_mapping, descriptions)
@@ -297,20 +301,20 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
         if not has_missing:
             return False
         
-        # Check if missing values are significant (more than 5% of data)
+        # Check if missing values are significant (more than 10% of data)
         total_cells = df.shape[0] * df.shape[1]
         missing_cells = df.isnull().sum().sum()
-        significant_missing = missing_cells > total_cells * 0.05
+        significant_missing = missing_cells > total_cells * 0.10
         
         # Don't suggest if any column has >50% missing
         no_high_missing = not any(df[col].isnull().mean() > 0.5 for col in df.columns)
         
         return significant_missing and no_high_missing
     elif action_type == "remove_duplicates":
-        # Only suggest if there are significant duplicates (more than 5% of rows)
+        # Only suggest if there are significant duplicates (more than 15% of rows)
         total_rows = len(df)
         duplicate_rows = df.duplicated().sum()
-        return duplicate_rows > total_rows * 0.05
+        return duplicate_rows > total_rows * 0.15
     elif action_type == "lowercase_strings":
         # Only suggest if there are string columns with significant mixed case
         for col in df.columns:
@@ -319,8 +323,8 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
                 if len(sample_values) > 0:
                     # Count how many values have uppercase letters
                     uppercase_count = sum(1 for val in sample_values if any(c.isupper() for c in str(val)))
-                    # Only suggest if more than 30% of values have uppercase letters
-                    if uppercase_count > len(sample_values) * 0.3:
+                    # Only suggest if more than 60% of values have uppercase letters
+                    if uppercase_count > len(sample_values) * 0.6:
                         return True
         return False
     elif action_type == "strip_whitespace":
@@ -331,8 +335,8 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
                 if len(sample_values) > 0:
                     # Count how many values have whitespace issues
                     whitespace_count = sum(1 for val in sample_values if str(val) != str(val).strip())
-                    # Only suggest if more than 20% of values have whitespace issues
-                    if whitespace_count > len(sample_values) * 0.2:
+                    # Only suggest if more than 50% of values have whitespace issues
+                    if whitespace_count > len(sample_values) * 0.5:
                         return True
         return False
     elif action_type == "convert_numeric":
@@ -349,8 +353,8 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
                         if (val_str.replace('.', '').replace('-', '').replace(',', '').isdigit() and 
                             len(val_str) > 0 and val_str != '0' and '.' in val_str):
                             numeric_like_count += 1
-                    # Only suggest if at least 80% of values look like numbers AND they have decimal points
-                    if numeric_like_count > len(sample_values) * 0.8:
+                    # Only suggest if at least 95% of values look like numbers AND they have decimal points
+                    if numeric_like_count > len(sample_values) * 0.95:
                         return True
         return False
     elif action_type == "remove_outliers":
@@ -362,8 +366,8 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
                 IQR = Q3 - Q1
                 if IQR > 0:  # Avoid division by zero
                     outliers = df[(df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)]
-                    # Only suggest if there are significant outliers (more than 10% of data)
-                    if len(outliers) > len(df) * 0.10:
+                    # Only suggest if there are significant outliers (more than 20% of data)
+                    if len(outliers) > len(df) * 0.20:
                         return True
         return False
     elif action_type == "standardize_dates":
@@ -380,8 +384,8 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
                         (val_str.count('/') == 2 or val_str.count('-') == 2) and
                         any(c.isdigit() for c in val_str)):
                         date_like_count += 1
-                # Only suggest if at least 50% of values look like dates
-                if date_like_count > len(sample_values) * 0.5:
+                # Only suggest if at least 80% of values look like dates
+                if date_like_count > len(sample_values) * 0.8:
                     return True
         return False
     elif action_type == "remove_empty_rows":
@@ -401,8 +405,8 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
                         if (val_str.replace('.', '').replace('-', '').replace(',', '').isdigit() and 
                             len(val_str) > 0 and val_str != '0' and '.' in val_str):
                             numeric_like_count += 1
-                    # Only suggest if at least 90% of values look like numbers with decimals
-                    if numeric_like_count > len(sample_values) * 0.9:
+                    # Only suggest if at least 98% of values look like numbers with decimals
+                    if numeric_like_count > len(sample_values) * 0.98:
                         return True
         return False
     return False
