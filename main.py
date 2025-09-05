@@ -163,65 +163,112 @@ if uploaded_file is not None:
         
         # Cleaning suggestions
         st.subheader("Data Cleaning Suggestions")
+        
+        # Check if this is already a cleaned dataset
+        is_cleaned_dataset = any(keyword in uploaded_file.name.lower() for keyword in ['_cleaned', '_clean', 'cleaned', 'clean'])
+        
         if st.session_state.cleaning_suggestions is None:
-            with st.spinner("Generating cleaning suggestions..."):
-                try:
-                    st.session_state.cleaning_suggestions = get_cleaning_suggestions(df, st.session_state.domain)
-                except Exception as e:
-                    st.error(f"Error generating cleaning suggestions: {str(e)}")
-                    st.session_state.cleaning_suggestions = {
-                        "description": "Unable to generate cleaning suggestions. Please try again.",
-                        "options": [
-                            {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
-                            {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
-                            {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
-                            {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
-                            {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
-                        ]
-                    }
-        
-        if isinstance(st.session_state.cleaning_suggestions, dict) and "description" in st.session_state.cleaning_suggestions:
-            # Determine if there are any supported actions; if none, show clean message here too
-            _allowed_labels_preview = {
-                "Remove columns with >50% missing values",
-                "Fill missing values with mean (numeric) or mode (categorical)",
-                "Remove duplicate rows",
-                "Convert string columns to lowercase",
-                "Remove leading/trailing whitespace",
-            }
-            _options = st.session_state.cleaning_suggestions.get("options", [])
-            _supported_exists = any(
-                isinstance(opt, dict) and opt.get("label") in _allowed_labels_preview for opt in _options
-            )
-            if _supported_exists:
-                st.write(st.session_state.cleaning_suggestions["description"])
+            if is_cleaned_dataset:
+                # Skip cleaning suggestions for already cleaned datasets
+                st.session_state.cleaning_suggestions = {
+                    "description": "This appears to be a cleaned dataset.",
+                    "options": []
+                }
             else:
-                st.success("Dataset appears clean ✅ No cleaning actions recommended.")
-        else:
-            st.warning("Cleaning suggestions were malformed; using safe defaults.")
-            st.session_state.cleaning_suggestions = {
-                "description": "Default cleaning suggestions applied.",
-                "options": [
-                    {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
-                    {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
-                    {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
-                    {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
-                    {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
-                ]
-            }
+                with st.spinner("Generating cleaning suggestions..."):
+                    try:
+                        st.session_state.cleaning_suggestions = get_cleaning_suggestions(df, st.session_state.domain)
+                    except Exception as e:
+                        st.error(f"Error generating cleaning suggestions: {str(e)}")
+                        st.session_state.cleaning_suggestions = {
+                            "description": "Unable to generate cleaning suggestions. Please try again.",
+                            "options": [
+                                {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
+                                {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
+                                {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
+                                {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
+                                {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
+                            ]
+                        }
         
-        # Data cleaning options
-        st.subheader("Apply Data Cleaning")
-        selected_options = {}
+        # Check if we have cleaning suggestions and determine if dataset is clean
+        dataset_needs_cleaning = False
         
-        if isinstance(st.session_state.cleaning_suggestions, dict) and "options" in st.session_state.cleaning_suggestions:
-            # Only show supported cleaning actions
+        if isinstance(st.session_state.cleaning_suggestions, dict) and "description" in st.session_state.cleaning_suggestions and "options" in st.session_state.cleaning_suggestions:
+            # Determine if there are any supported actions; if none, show clean message here too
             ALLOWED_CLEANING_LABELS = {
                 "Remove columns with >50% missing values",
                 "Fill missing values with mean (numeric) or mode (categorical)",
                 "Remove duplicate rows",
                 "Convert string columns to lowercase",
                 "Remove leading/trailing whitespace",
+                "Convert string numbers to numeric format",
+                "Remove extreme outliers from numeric columns",
+                "Standardize date column formats",
+                "Remove completely empty rows",
+                "Fix incorrect data types"
+            }
+            _options = st.session_state.cleaning_suggestions.get("options", [])
+            filtered_options = [
+                opt for opt in _options
+                if isinstance(opt, dict) and opt.get("label") in ALLOWED_CLEANING_LABELS
+            ]
+            if filtered_options:
+                st.write(st.session_state.cleaning_suggestions["description"])
+                dataset_needs_cleaning = True
+            else:
+                st.success("Dataset appears clean ✅ No cleaning actions recommended.")
+        else:
+            st.warning("Cleaning suggestions were malformed; checking what's actually needed.")
+            # Import the function we need
+            from utils import _get_applicable_cleaning_actions
+            
+            action_mapping = {
+                "remove_high_missing": "Remove columns with >50% missing values",
+                "fill_missing": "Fill missing values with mean (numeric) or mode (categorical)",
+                "remove_duplicates": "Remove duplicate rows",
+                "lowercase_strings": "Convert string columns to lowercase",
+                "strip_whitespace": "Remove leading/trailing whitespace",
+                "convert_numeric": "Convert string numbers to numeric format",
+                "remove_outliers": "Remove extreme outliers from numeric columns",
+                "standardize_dates": "Standardize date column formats",
+                "remove_empty_rows": "Remove completely empty rows",
+                "fix_data_types": "Fix incorrect data types"
+            }
+            
+            descriptions = {
+                "Remove columns with >50% missing values": "Drop columns that have more than 50% missing values",
+                "Fill missing values with mean (numeric) or mode (categorical)": "Fill missing values using appropriate statistical methods",
+                "Remove duplicate rows": "Remove any duplicate entries in the dataset",
+                "Convert string columns to lowercase": "Standardize text data by converting to lowercase",
+                "Remove leading/trailing whitespace": "Clean up text data by removing extra spaces",
+                "Convert string numbers to numeric format": "Convert numeric data stored as strings to proper numeric format",
+                "Remove extreme outliers from numeric columns": "Remove statistical outliers from numeric columns",
+                "Standardize date column formats": "Convert date columns to consistent datetime format",
+                "Remove completely empty rows": "Remove rows where all values are missing",
+                "Fix incorrect data types": "Convert columns to their appropriate data types"
+            }
+            
+            options = _get_applicable_cleaning_actions(df, action_mapping, descriptions)
+            st.session_state.cleaning_suggestions = {
+                "description": "Data cleaning suggestions based on dataset analysis",
+                "options": options
+            }
+        
+        # Data cleaning options - only show if there are cleaning actions available
+        if dataset_needs_cleaning and isinstance(st.session_state.cleaning_suggestions, dict) and "options" in st.session_state.cleaning_suggestions:
+            # Get the filtered options (we already calculated these above)
+            ALLOWED_CLEANING_LABELS = {
+                "Remove columns with >50% missing values",
+                "Fill missing values with mean (numeric) or mode (categorical)",
+                "Remove duplicate rows",
+                "Convert string columns to lowercase",
+                "Remove leading/trailing whitespace",
+                "Convert string numbers to numeric format",
+                "Remove extreme outliers from numeric columns",
+                "Standardize date column formats",
+                "Remove completely empty rows",
+                "Fix incorrect data types"
             }
 
             filtered_options = [
@@ -229,18 +276,16 @@ if uploaded_file is not None:
                 if isinstance(opt, dict) and opt.get("label") in ALLOWED_CLEANING_LABELS
             ]
 
-            if not filtered_options:
-                st.success("Dataset appears clean ✅ No cleaning actions recommended.")
-                filtered_options = []
-
-            if filtered_options:
-                for option in filtered_options:
-                    selected_options[option["label"]] = st.checkbox(
-                        f"{option['label']} - {option['description']}", 
-                        value=option.get("default", False)
-                    )
+            # Show cleaning options without the "Apply Data Cleaning" header
+            selected_options = {}
+            for option in filtered_options:
+                selected_options[option["label"]] = st.checkbox(
+                    f"{option['label']} - {option['description']}", 
+                    value=option.get("default", False)
+                )
             
-            if filtered_options and st.button("Apply Selected Cleaning"):
+            # Apply button outside the loop
+            if st.button("Apply Selected Cleaning"):
                 cleaned_df = df.copy()
                 
                 if selected_options.get("Remove columns with >50% missing values", False):
@@ -276,6 +321,54 @@ if uploaded_file is not None:
                         if cleaned_df[col].dtype == 'object':
                             cleaned_df[col] = cleaned_df[col].str.strip()
                 
+                if selected_options.get("Convert string numbers to numeric format", False):
+                    for col in cleaned_df.columns:
+                        if cleaned_df[col].dtype == 'object':
+                            # Try to convert to numeric, keeping original if conversion fails
+                            try:
+                                cleaned_df[col] = pd.to_numeric(cleaned_df[col], errors='ignore')
+                            except Exception:
+                                pass
+                
+                if selected_options.get("Remove extreme outliers from numeric columns", False):
+                    for col in cleaned_df.columns:
+                        if pd.api.types.is_numeric_dtype(cleaned_df[col]):
+                            Q1 = cleaned_df[col].quantile(0.25)
+                            Q3 = cleaned_df[col].quantile(0.75)
+                            IQR = Q3 - Q1
+                            # Remove outliers using IQR method
+                            cleaned_df = cleaned_df[~((cleaned_df[col] < Q1 - 1.5 * IQR) | (cleaned_df[col] > Q3 + 1.5 * IQR))]
+                
+                if selected_options.get("Standardize date column formats", False):
+                    for col in cleaned_df.columns:
+                        if cleaned_df[col].dtype == 'object':
+                            try:
+                                cleaned_df[col] = pd.to_datetime(cleaned_df[col], errors='ignore')
+                            except Exception:
+                                pass
+                
+                if selected_options.get("Remove completely empty rows", False):
+                    cleaned_df = cleaned_df.dropna(how='all')
+                
+                if selected_options.get("Fix incorrect data types", False):
+                    for col in cleaned_df.columns:
+                        if cleaned_df[col].dtype == 'object':
+                            # Try to convert to numeric first
+                            try:
+                                numeric_converted = pd.to_numeric(cleaned_df[col], errors='coerce')
+                                if not numeric_converted.isna().all():
+                                    cleaned_df[col] = numeric_converted
+                                    continue
+                            except Exception:
+                                pass
+                            # Try to convert to datetime
+                            try:
+                                datetime_converted = pd.to_datetime(cleaned_df[col], errors='coerce')
+                                if not datetime_converted.isna().all():
+                                    cleaned_df[col] = datetime_converted
+                            except Exception:
+                                pass
+                
                 # Show a quick preview of cleaned data
                 st.subheader("Cleaned Data Preview")
                 st.dataframe(
@@ -284,11 +377,6 @@ if uploaded_file is not None:
                     height=300,
                     hide_index=True
                 )
-
-                # Option to replace current dataset with cleaned version
-                if st.checkbox("Replace current dataset with cleaned version"):
-                    st.session_state.df = cleaned_df
-                    st.success("Replaced dataset with cleaned version. Subsequent analyses will use cleaned data.")
 
                 # Download button for cleaned data
                 csv = cleaned_df.to_csv(index=False)
@@ -300,18 +388,6 @@ if uploaded_file is not None:
                     file_name=cleaned_filename,
                     mime='text/csv'
                 )
-        else:
-            st.warning("No cleaning options found; using safe defaults.")
-            st.session_state.cleaning_suggestions = {
-                "description": "Default cleaning suggestions applied.",
-                "options": [
-                    {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
-                    {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
-                    {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
-                    {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
-                    {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
-                ]
-            }
     
     # Data Visualization Section
     if show_visualization:

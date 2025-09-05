@@ -148,55 +148,264 @@ def analyze_data(df: pd.DataFrame, question: str) -> str:
     return get_openai_response(prompt)
 
 def get_cleaning_suggestions(df: pd.DataFrame, domain: str) -> dict:
-    """Get data cleaning suggestions using OpenAI API with optimized prompt."""
+    """Get data cleaning suggestions using OpenAI API with structured approach."""
     info = get_dataset_info(df)
     
-    # Optimize prompt to use fewer tokens
     prompt = CLEANING_SUGGESTIONS_PROMPT.format(
         num_rows=info["num_rows"],
         num_cols=info["num_cols"],
-        column_info=json.dumps(info["column_info"]),  # Convert to JSON string to reduce tokens
-        missing_values=json.dumps(info["missing_values"]),  # Convert to JSON string to reduce tokens
+        column_info=json.dumps(info["column_info"]),
+        missing_values=json.dumps(info["missing_values"]),
         domain=domain
     )
     response = get_openai_response(prompt)
     
-    # Ask the model to return strict JSON
-    formatting_prompt = f"""Return ONLY valid JSON (no prose, no markdown). Use this schema:
-{{
-  "description": "Brief explanation",
-  "options": [
-    {{ "label": "Action label", "description": "Brief explanation", "default": true }}
-  ]
-}}
-
-Suggestions to format:
-{response}
-"""
-
-    structured_response = get_openai_response(formatting_prompt)
-    parsed = _parse_json_safe(structured_response)
-
-    default_options = [
-        {"label": "Remove columns with >50% missing values", "description": "Drop columns that have more than 50% missing values", "default": True},
-        {"label": "Fill missing values with mean (numeric) or mode (categorical)", "description": "Fill missing values using appropriate statistical methods", "default": True},
-        {"label": "Remove duplicate rows", "description": "Remove any duplicate entries in the dataset", "default": True},
-        {"label": "Convert string columns to lowercase", "description": "Standardize text data by converting to lowercase", "default": False},
-        {"label": "Remove leading/trailing whitespace", "description": "Clean up text data by removing extra spaces", "default": True}
-    ]
-
-    if isinstance(parsed, dict):
-        description = parsed.get("description") or (response if isinstance(response, str) else "Data cleaning suggestions")
-        options = parsed.get("options")
-        if not isinstance(options, list) or not options:
-            options = default_options
-        return {"description": description, "options": options}
-
-    # Fallback to default structure if parsing fails
+    # Parse the structured response and map to supported cleaning actions
+    options = _parse_cleaning_suggestions(response, df)
+    
+    # If no valid options found, check what's actually needed
+    if not options:
+        # Define the mappings here for the fallback
+        action_mapping = {
+            "remove_high_missing": "Remove columns with >50% missing values",
+            "fill_missing": "Fill missing values with mean (numeric) or mode (categorical)",
+            "remove_duplicates": "Remove duplicate rows",
+            "lowercase_strings": "Convert string columns to lowercase",
+            "strip_whitespace": "Remove leading/trailing whitespace",
+            "convert_numeric": "Convert string numbers to numeric format",
+            "remove_outliers": "Remove extreme outliers from numeric columns",
+            "standardize_dates": "Standardize date column formats",
+            "remove_empty_rows": "Remove completely empty rows",
+            "fix_data_types": "Fix incorrect data types"
+        }
+        
+        descriptions = {
+            "Remove columns with >50% missing values": "Drop columns that have more than 50% missing values",
+            "Fill missing values with mean (numeric) or mode (categorical)": "Fill missing values using appropriate statistical methods",
+            "Remove duplicate rows": "Remove any duplicate entries in the dataset",
+            "Convert string columns to lowercase": "Standardize text data by converting to lowercase",
+            "Remove leading/trailing whitespace": "Clean up text data by removing extra spaces",
+            "Convert string numbers to numeric format": "Convert numeric data stored as strings to proper numeric format",
+            "Remove extreme outliers from numeric columns": "Remove statistical outliers from numeric columns",
+            "Standardize date column formats": "Convert date columns to consistent datetime format",
+            "Remove completely empty rows": "Remove rows where all values are missing",
+            "Fix incorrect data types": "Convert columns to their appropriate data types"
+        }
+        
+        options = _get_applicable_cleaning_actions(df, action_mapping, descriptions)
+    
     return {
-        "description": response if isinstance(response, str) else "Data cleaning suggestions",
-        "options": default_options
+        "description": "Data cleaning suggestions based on dataset analysis",
+        "options": options
     }
+
+def _parse_cleaning_suggestions(response: str, df: pd.DataFrame) -> list:
+    """Parse cleaning suggestions and map to supported actions."""
+    options = []
+    
+    # Mapping from action types to supported labels
+    action_mapping = {
+        "remove_high_missing": "Remove columns with >50% missing values",
+        "fill_missing": "Fill missing values with mean (numeric) or mode (categorical)",
+        "remove_duplicates": "Remove duplicate rows",
+        "lowercase_strings": "Convert string columns to lowercase",
+        "strip_whitespace": "Remove leading/trailing whitespace",
+        "convert_numeric": "Convert string numbers to numeric format",
+        "remove_outliers": "Remove extreme outliers from numeric columns",
+        "standardize_dates": "Standardize date column formats",
+        "remove_empty_rows": "Remove completely empty rows",
+        "fix_data_types": "Fix incorrect data types"
+    }
+    
+    # Default descriptions
+    descriptions = {
+        "Remove columns with >50% missing values": "Drop columns that have more than 50% missing values",
+        "Fill missing values with mean (numeric) or mode (categorical)": "Fill missing values using appropriate statistical methods",
+        "Remove duplicate rows": "Remove any duplicate entries in the dataset",
+        "Convert string columns to lowercase": "Standardize text data by converting to lowercase",
+        "Remove leading/trailing whitespace": "Clean up text data by removing extra spaces",
+        "Convert string numbers to numeric format": "Convert numeric data stored as strings to proper numeric format",
+        "Remove extreme outliers from numeric columns": "Remove statistical outliers from numeric columns",
+        "Standardize date column formats": "Convert date columns to consistent datetime format",
+        "Remove completely empty rows": "Remove rows where all values are missing",
+        "Fix incorrect data types": "Convert columns to their appropriate data types"
+    }
+    
+    # If the AI response is empty or malformed, fall back to checking what's actually needed
+    if not response or len(response.strip()) < 10:
+        return _get_applicable_cleaning_actions(df, action_mapping, descriptions)
+    
+    # Parse the response line by line
+    lines = response.strip().split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line or not line[0].isdigit():
+            continue
+            
+        # Extract action type and columns
+        try:
+            # Look for action types in the line
+            for action_type, label in action_mapping.items():
+                if action_type in line.lower():
+                    # Check if this action is applicable to the dataset
+                    if _is_action_applicable(action_type, df):
+                        options.append({
+                            "label": label,
+                            "description": descriptions[label],
+                            "default": True
+                        })
+                        break
+        except Exception:
+            continue
+    
+    # If no options were parsed from AI response, fall back to checking what's actually needed
+    if not options:
+        return _get_applicable_cleaning_actions(df, action_mapping, descriptions)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_options = []
+    for option in options:
+        if option["label"] not in seen:
+            seen.add(option["label"])
+            unique_options.append(option)
+    
+    return unique_options
+
+def _get_applicable_cleaning_actions(df: pd.DataFrame, action_mapping: dict, descriptions: dict) -> list:
+    """Get cleaning actions that are actually applicable to the dataset."""
+    options = []
+    
+    for action_type, label in action_mapping.items():
+        if _is_action_applicable(action_type, df):
+            options.append({
+                "label": label,
+                "description": descriptions[label],
+                "default": True
+            })
+    
+    return options
+
+def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
+    """Check if a cleaning action is applicable to the dataset."""
+    if action_type == "remove_high_missing":
+        return any(df[col].isnull().mean() > 0.5 for col in df.columns)
+    elif action_type == "fill_missing":
+        # Only suggest if there are missing values but not too many (not >50%)
+        # Also require that missing values are not just a few scattered ones
+        has_missing = df.isnull().any().any()
+        if not has_missing:
+            return False
+        
+        # Check if missing values are significant (more than 5% of data)
+        total_cells = df.shape[0] * df.shape[1]
+        missing_cells = df.isnull().sum().sum()
+        significant_missing = missing_cells > total_cells * 0.05
+        
+        # Don't suggest if any column has >50% missing
+        no_high_missing = not any(df[col].isnull().mean() > 0.5 for col in df.columns)
+        
+        return significant_missing and no_high_missing
+    elif action_type == "remove_duplicates":
+        # Only suggest if there are significant duplicates (more than 5% of rows)
+        total_rows = len(df)
+        duplicate_rows = df.duplicated().sum()
+        return duplicate_rows > total_rows * 0.05
+    elif action_type == "lowercase_strings":
+        # Only suggest if there are string columns with significant mixed case
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                sample_values = df[col].dropna().astype(str).head(100)
+                if len(sample_values) > 0:
+                    # Count how many values have uppercase letters
+                    uppercase_count = sum(1 for val in sample_values if any(c.isupper() for c in str(val)))
+                    # Only suggest if more than 30% of values have uppercase letters
+                    if uppercase_count > len(sample_values) * 0.3:
+                        return True
+        return False
+    elif action_type == "strip_whitespace":
+        # Only suggest if there are string columns with significant whitespace issues
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                sample_values = df[col].dropna().astype(str).head(100)
+                if len(sample_values) > 0:
+                    # Count how many values have whitespace issues
+                    whitespace_count = sum(1 for val in sample_values if str(val) != str(val).strip())
+                    # Only suggest if more than 20% of values have whitespace issues
+                    if whitespace_count > len(sample_values) * 0.2:
+                        return True
+        return False
+    elif action_type == "convert_numeric":
+        # Only suggest if there are string columns that look like numbers
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                sample_values = df[col].dropna().astype(str).head(100)
+                if len(sample_values) > 0:
+                    # More strict numeric detection
+                    numeric_like_count = 0
+                    for val in sample_values:
+                        val_str = str(val).strip()
+                        # Must look like a real number (not just digits)
+                        if (val_str.replace('.', '').replace('-', '').replace(',', '').isdigit() and 
+                            len(val_str) > 0 and val_str != '0' and '.' in val_str):
+                            numeric_like_count += 1
+                    # Only suggest if at least 80% of values look like numbers AND they have decimal points
+                    if numeric_like_count > len(sample_values) * 0.8:
+                        return True
+        return False
+    elif action_type == "remove_outliers":
+        # Only suggest if there are numeric columns with outliers and enough data
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]) and len(df) > 10:  # Need at least 10 rows
+                Q1 = df[col].quantile(0.25)
+                Q3 = df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                if IQR > 0:  # Avoid division by zero
+                    outliers = df[(df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)]
+                    # Only suggest if there are significant outliers (more than 10% of data)
+                    if len(outliers) > len(df) * 0.10:
+                        return True
+        return False
+    elif action_type == "standardize_dates":
+        # Only suggest if there are columns that look like dates but aren't datetime
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                sample_values = df[col].dropna().astype(str).head(100)
+                # More strict date detection - must look like actual dates
+                date_like_count = 0
+                for val in sample_values:
+                    val_str = str(val).strip()
+                    # Check for common date patterns
+                    if (len(val_str) >= 8 and 
+                        (val_str.count('/') == 2 or val_str.count('-') == 2) and
+                        any(c.isdigit() for c in val_str)):
+                        date_like_count += 1
+                # Only suggest if at least 50% of values look like dates
+                if date_like_count > len(sample_values) * 0.5:
+                    return True
+        return False
+    elif action_type == "remove_empty_rows":
+        # Only suggest if there are completely empty rows
+        return df.isnull().all(axis=1).any()
+    elif action_type == "fix_data_types":
+        # Only suggest if there are obvious type mismatches
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                sample_values = df[col].dropna().astype(str).head(100)
+                if len(sample_values) > 0:
+                    # Check if most values look like numbers but are stored as strings
+                    numeric_like_count = 0
+                    for val in sample_values:
+                        val_str = str(val).strip()
+                        # More strict numeric detection - must have decimal points
+                        if (val_str.replace('.', '').replace('-', '').replace(',', '').isdigit() and 
+                            len(val_str) > 0 and val_str != '0' and '.' in val_str):
+                            numeric_like_count += 1
+                    # Only suggest if at least 90% of values look like numbers with decimals
+                    if numeric_like_count > len(sample_values) * 0.9:
+                        return True
+        return False
+    return False
 
 def get_visualization_suggestions(df: pd.DataFrame, domain: str) -> dict:
     """Get visualization suggestions using OpenAI API with optimized prompt."""

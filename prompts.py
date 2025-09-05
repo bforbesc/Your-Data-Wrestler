@@ -12,20 +12,53 @@ Question: {question}
 
 Provide concise answer. If visualization needed, suggest plot type."""
 
-CLEANING_SUGGESTIONS_PROMPT = """Suggest data cleaning for:
+CLEANING_SUGGESTIONS_PROMPT = """Analyze this dataset and suggest EXACTLY 3-5 specific data cleaning actions:
 Rows: {num_rows}
 Cols: {num_cols}
 Info: {column_info}
 Missing: {missing_values}
 Domain: {domain}
 
-Focus on:
-1. Missing values
-2. Data types
-3. Outliers
-4. Domain needs
+CRITICAL REQUIREMENTS:
+1. Suggest EXACTLY 3-5 cleaning actions (no more, no less)
+2. Use ONLY these exact cleaning action types: remove_high_missing, fill_missing, remove_duplicates, lowercase_strings, strip_whitespace, convert_numeric, remove_outliers, standardize_dates, remove_empty_rows, fix_data_types
+3. Each suggestion must specify EXACT column names from the dataset when applicable
+4. Each suggestion must be unique and non-overlapping
+5. ONLY suggest actions that are ACTUALLY NEEDED - be very conservative
+6. If the dataset is already clean, suggest fewer actions (even 0-2 if appropriate)
 
-List actionable items."""
+CLEANING ACTION RULES:
+- remove_high_missing: Use ONLY when columns have >50% missing values (specify column names)
+- fill_missing: Use ONLY when columns have <50% missing values AND missing values are significant (>1% of data) (specify column names and method: mean/mode)
+- remove_duplicates: Use ONLY when dataset has duplicate rows (no specific columns needed)
+- lowercase_strings: Use ONLY when string columns have significant mixed casing (>30% of values have uppercase) (specify column names)
+- strip_whitespace: Use ONLY when string columns have significant whitespace issues (>20% of values have leading/trailing spaces) (specify column names)
+- convert_numeric: Use ONLY when numeric data is stored as strings AND most values (>80%) look like numbers with decimals (specify column names)
+- remove_outliers: Use ONLY when there are significant outliers (>5% of data) in numeric columns (specify column names)
+- standardize_dates: Use ONLY when date columns have inconsistent formats AND most values (>50%) look like dates (specify column names)
+- remove_empty_rows: Use ONLY when there are completely empty rows (no specific columns needed)
+- fix_data_types: Use ONLY when columns have obvious type mismatches AND most values (>90%) look like numbers with decimals (specify column names and target type)
+
+IMPORTANT: Do NOT suggest actions if the data is already clean or if the issues are minor!
+
+FORMAT: For each suggestion, provide:
+1. Action type (from the list above)
+2. Exact column names to use (when applicable)
+3. Brief description of what it fixes
+4. Why it's valuable for this dataset
+
+Example format for dirty data:
+1. remove_high_missing of 'column1', 'column2' - Removes columns with >50% missing data
+2. fill_missing of 'age' with mean, 'category' with mode - Fills remaining missing values appropriately
+3. remove_duplicates - Removes duplicate rows from dataset
+4. lowercase_strings of 'name', 'category' - Standardizes text data casing
+5. convert_numeric of 'price', 'quantity' - Converts string numbers to proper numeric format
+
+Example format for clean data:
+1. remove_duplicates - Removes duplicate rows from dataset
+(Only suggest actions that are actually needed!)
+
+Generate exactly 3-5 suggestions following this format."""
 
 VISUALIZATION_SUGGESTIONS_PROMPT = """Analyze this dataset and suggest EXACTLY 3-5 specific visualizations:
 Rows: {num_rows}
