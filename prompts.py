@@ -27,40 +27,44 @@ Focus on:
 
 List actionable items."""
 
-VISUALIZATION_SUGGESTIONS_PROMPT = """Analyze this specific dataset and suggest visualizations:
+VISUALIZATION_SUGGESTIONS_PROMPT = """Analyze this dataset and suggest EXACTLY 3-5 specific visualizations:
 Rows: {num_rows}
 Cols: {num_cols}
 Info: {column_info}
 Domain: {domain}
 
-IMPORTANT: Your suggestions MUST:
-1. Reference EXACT column names from the dataset
-2. Include specific measurements or thresholds when relevant
-3. Explain why each visualization is particularly relevant for THIS dataset
-4. Consider the domain context and what insights would be most valuable
+CRITICAL REQUIREMENTS:
+1. Suggest EXACTLY 3-5 visualizations (no more, no less)
+2. Use ONLY these exact plot types: histogram, scatter, bar, box, line, stacked_bar, area, pie, heatmap, violin, density
+3. Each suggestion must specify EXACT column names from the dataset
+4. Each suggestion must be unique and non-overlapping
+5. Prioritize the most insightful visualizations for this specific dataset
 
-Example of a good suggestion:
-"Create a scatter plot of bill_length_mm vs flipper_length_mm, colored by species, to show how these measurements correlate across different penguin species. This is particularly relevant because it can reveal if certain species have distinct morphological characteristics."
+PLOT TYPE RULES:
+- histogram: Use with 1 numerical column only
+- scatter: Use with exactly 2 numerical columns
+- bar: Use with 1 categorical column only  
+- box: Use with 1 numerical column only
+- line: Use with exactly 2 numerical columns
+- stacked_bar: Use with 1 categorical + 1 numerical column
+- area: Use with exactly 2 numerical columns
+- pie: Use with 1 categorical column only
+- heatmap: Use with 2+ numerical columns (will use first 2)
+- violin: Use with 1 numerical column only
+- density: Use with 1 numerical column only
 
-Example of a bad suggestion (too generic):
-"Create scatter plots for numerical columns to show relationships between variables."
+FORMAT: For each suggestion, provide:
+1. Plot type (from the list above)
+2. Exact column names to use
+3. Brief description of what it reveals
+4. Why it's valuable for this dataset
 
-For each suggested visualization:
-1. Specify the exact columns to use
-2. Explain what specific patterns or relationships to look for
-3. Describe why these insights matter for this dataset
-4. Include any relevant thresholds or measurements
+Example format:
+1. histogram of 'age' - Shows age distribution patterns
+2. scatter of 'income' vs 'spending' - Reveals spending-income correlation
+3. bar of 'category' - Shows category frequency distribution
 
-If the dataset contains time-based columns:
-1. Suggest specific time-based visualizations using the exact time column names
-2. Consider seasonal patterns, trends, and cycles relevant to this domain
-3. Suggest appropriate time-based aggregations for this specific data
-
-Format your response as a list of specific visualization suggestions, each with:
-- The exact columns to use
-- The type of plot
-- What specific insights to look for
-- Why these insights matter for this dataset."""
+Generate exactly 3-5 suggestions following this format."""
 
 VISUALIZATION_PROMPT = """You are a data visualization expert. Given this dataset:
 Rows: {num_rows}
@@ -68,7 +72,20 @@ Cols: {num_cols}
 Info: {column_info}
 Domain: {domain}
 
-Provide a comprehensive set of visualization suggestions that would be insightful for this specific dataset and domain. For each visualization, include:
+Provide a comprehensive set of visualization suggestions that would be insightful for this specific dataset and domain. Use ONLY these supported plot types:
+
+SUPPORTED PLOT TYPES:
+- histogram: For single numerical column distributions
+- scatter: For relationships between two numerical columns  
+- bar: For single categorical column frequencies
+- box: For single numerical column distribution analysis
+- line: For trends between two numerical columns
+- stacked_bar: For categorical breakdowns with two columns
+- area: For filled area charts between two numerical columns
+- pie: For single categorical column proportions
+- heatmap: For correlation matrices between two numerical columns
+- violin: For single numerical column distribution shapes
+- density: For single numerical column density curves
 
 1. Distribution Analysis
 - Histograms for numerical columns
@@ -77,6 +94,8 @@ Provide a comprehensive set of visualization suggestions that would be insightfu
 - Box plots for comparing distributions
   - Show quartiles and outliers
   - Compare across categories
+- Violin plots for distribution shapes
+- Density plots for smooth distribution curves
 
 2. Relationship Analysis
 - Scatter plots for numerical pairs
@@ -85,16 +104,17 @@ Provide a comprehensive set of visualization suggestions that would be insightfu
 - Bar charts for categorical data
   - Compare frequencies
   - Show proportions
+- Heatmaps for correlation matrices
+- Stacked bar charts for categorical breakdowns
 
 3. Time Series Analysis (if applicable)
 - Line plots for trends
   - Show changes over time
   - Identify patterns
-- Seasonal decomposition
-  - Show cyclical patterns
-  - Identify trends
+- Area charts for filled trend visualization
 
 4. Domain-Specific Visualizations
+- Pie charts for proportions
 - Industry standard plots
   - Common metrics
   - Key performance indicators

@@ -1,4 +1,0 @@
-
-- Plotly plots theme in line with app
-- Fix plots formating issues
-- Put domain in system prompt to OpenAI

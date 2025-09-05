@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 import hashlib
 import json
 from functools import lru_cache
+import numpy as np
+
 
 # ----------------------
 # JSON parsing utilities
@@ -210,27 +212,32 @@ def get_visualization_suggestions(df: pd.DataFrame, domain: str) -> dict:
     response = get_openai_response(prompt)
     
     # Parse the response to extract structured suggestions
-    prompt = f"""Given these specific visualization suggestions:
+    prompt = f"""Given these visualization suggestions:
 {response}
 
-Format them as JSON with this structure:
+Convert them to JSON format with this EXACT structure:
 {{
-    "description": "A brief overview of the visualization strategy for this specific dataset",
+    "description": "Brief overview of visualization strategy",
     "options": [
         {{
-            "type": "visualization_type (histogram/scatter/bar/box)",
-            "label": "A clear, specific label describing this exact visualization",
-            "description": "Detailed explanation of what this specific visualization reveals about this dataset",
-            "columns": ["exact_column_names_to_use"],
-            "default": true/false
+            "type": "histogram|scatter|bar|box|line|stacked_bar|area|pie|heatmap|violin|density",
+            "label": "Clear descriptive label",
+            "description": "What this visualization reveals",
+            "columns": ["exact_column_name_1", "exact_column_name_2_if_needed"],
+            "default": true
         }}
     ]
 }}
 
-Make sure to:
-1. Use the exact column names mentioned in the suggestions
-2. Keep the descriptions specific to this dataset
-3. Include all relevant details from the suggestions"""
+RULES:
+1. Use ONLY the supported plot types listed above
+2. Use EXACT column names from the dataset
+3. For single-column plots: use 1 column in the array
+4. For two-column plots: use exactly 2 columns in the array
+5. Set default: true for the first 2 suggestions, false for the rest
+6. Generate exactly 3-5 suggestions maximum
+
+Dataset columns available: {list(df.columns)}"""
     
     structured_response = get_openai_response(prompt)
     parsed = _parse_json_safe(structured_response)
@@ -239,57 +246,141 @@ Make sure to:
         description = parsed.get("description") or (response if isinstance(response, str) else "Visualization suggestions")
         options = parsed.get("options")
         if not isinstance(options, list) or not options:
-            options = [
-                {
+            # Create comprehensive fallback suggestions based on data types
+            numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+            categorical_cols = [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])]
+            
+            options = []
+            suggestion_count = 0
+            
+            # Priority 1: Histogram for first numeric column
+            if numeric_cols and suggestion_count < 5:
+                options.append({
                     "type": "histogram",
-                    "label": "Distribution Analysis",
-                    "description": "Shows the distribution of numerical variables",
-                    "columns": [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])],
+                    "label": f"{numeric_cols[0]} Distribution",
+                    "description": f"Shows the distribution pattern of {numeric_cols[0]}",
+                    "columns": [numeric_cols[0]],
                     "default": True
-                },
-                {
+                })
+                suggestion_count += 1
+            
+            # Priority 2: Scatter plot for first two numeric columns
+            if len(numeric_cols) >= 2 and suggestion_count < 5:
+                options.append({
                     "type": "scatter",
-                    "label": "Relationship Analysis",
-                    "description": "Shows relationships between numerical variables",
-                    "columns": [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])],
+                    "label": f"{numeric_cols[0]} vs {numeric_cols[1]} Relationship",
+                    "description": f"Shows correlation between {numeric_cols[0]} and {numeric_cols[1]}",
+                    "columns": [numeric_cols[0], numeric_cols[1]],
                     "default": True
-                },
-                {
+                })
+                suggestion_count += 1
+            
+            # Priority 3: Bar chart for first categorical column
+            if categorical_cols and suggestion_count < 5:
+                options.append({
                     "type": "bar",
-                    "label": "Categorical Analysis",
-                    "description": "Shows frequency of categorical variables",
-                    "columns": [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])],
-                    "default": True
-                }
-            ]
-        return {"description": description, "options": options}
+                    "label": f"{categorical_cols[0]} Frequency",
+                    "description": f"Shows frequency distribution of {categorical_cols[0]}",
+                    "columns": [categorical_cols[0]],
+                    "default": False
+                })
+                suggestion_count += 1
+            
+            # Priority 4: Box plot for second numeric column (if exists)
+            if len(numeric_cols) >= 2 and suggestion_count < 5:
+                options.append({
+                    "type": "box",
+                    "label": f"{numeric_cols[1]} Box Plot",
+                    "description": f"Shows quartiles and outliers for {numeric_cols[1]}",
+                    "columns": [numeric_cols[1]],
+                    "default": False
+                })
+                suggestion_count += 1
+            
+            # Priority 5: Pie chart for second categorical column (if exists)
+            if len(categorical_cols) >= 2 and suggestion_count < 5:
+                options.append({
+                    "type": "pie",
+                    "label": f"{categorical_cols[1]} Proportions",
+                    "description": f"Shows proportional distribution of {categorical_cols[1]}",
+                    "columns": [categorical_cols[1]],
+                    "default": False
+                })
+                suggestion_count += 1
+        
+        # Validate and clean up options
+        valid_options = []
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+                
+            plot_type = option.get("type", "")
+            columns = option.get("columns", [])
+            
+            # Validate plot type
+            if plot_type not in ["histogram", "scatter", "bar", "box", "line", "stacked_bar", "area", "pie", "heatmap", "violin", "density"]:
+                continue
+                
+            # Validate columns exist in dataset
+            valid_columns = [col for col in columns if col in df.columns]
+            if not valid_columns:
+                continue
+                
+            # Validate column count matches plot type requirements
+            if plot_type in ["histogram", "bar", "box", "pie", "violin", "density"] and len(valid_columns) != 1:
+                continue
+            elif plot_type in ["scatter", "line", "area", "heatmap"] and len(valid_columns) < 2:
+                continue
+            elif plot_type == "stacked_bar" and len(valid_columns) < 2:
+                continue
+                
+            # Create clean option
+            clean_option = {
+                "type": plot_type,
+                "label": option.get("label", f"{plot_type.title()} of {', '.join(valid_columns)}"),
+                "description": option.get("description", f"Shows {plot_type} for {', '.join(valid_columns)}"),
+                "columns": valid_columns,
+                "default": option.get("default", False)
+            }
+            valid_options.append(clean_option)
+        
+        # Remove duplicates based on (type, columns) combination
+        seen_combinations = set()
+        unique_options = []
+        for option in valid_options:
+            key = (option["type"], tuple(sorted(option["columns"])))
+            if key not in seen_combinations:
+                seen_combinations.add(key)
+                unique_options.append(option)
+        
+        return {"description": description, "options": unique_options}
 
     # Fallback to default structure if parsing fails
+    numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+    categorical_cols = [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])]
+    
+    fallback_options = []
+    if numeric_cols:
+        fallback_options.append({
+            "type": "histogram",
+            "label": f"{numeric_cols[0]} Distribution",
+            "description": f"Shows the distribution of {numeric_cols[0]}",
+            "columns": [numeric_cols[0]],
+            "default": True
+        })
+    
+    if categorical_cols:
+        fallback_options.append({
+            "type": "bar",
+            "label": f"{categorical_cols[0]} Frequency",
+            "description": f"Shows frequency distribution of {categorical_cols[0]}",
+            "columns": [categorical_cols[0]],
+            "default": False
+        })
+    
     return {
-        "description": response,
-        "options": [
-            {
-                "type": "histogram",
-                "label": "Distribution Analysis",
-                "description": "Shows the distribution of numerical variables",
-                "columns": [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])],
-                "default": True
-            },
-            {
-                "type": "scatter",
-                "label": "Relationship Analysis",
-                "description": "Shows relationships between numerical variables",
-                "columns": [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])],
-                "default": True
-            },
-            {
-                "type": "bar",
-                "label": "Categorical Analysis",
-                "description": "Shows frequency of categorical variables",
-                "columns": [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])],
-                "default": True
-            }
-        ]
+        "description": "Basic visualization suggestions",
+        "options": fallback_options
     }
 
 def get_plot_labels(df: pd.DataFrame, plot_type: str, x_col: str, y_col: Optional[str] = None) -> Dict[str, str]:
@@ -345,31 +436,92 @@ def create_visualization(df: pd.DataFrame, plot_type: str, x_col: str, y_col: Op
             fig = go.Figure()
             fig.add_trace(go.Bar(x=counts[x_col], y=counts["count"]))
     elif plot_type == "histogram":
-        fig = px.histogram(df, x=x_col, color_discrete_sequence=COLORWAY)
+        fig = px.histogram(df, x=x_col)
     elif plot_type == "box":
-        fig = px.box(df, x=x_col, y=y_col if y_col else None, color_discrete_sequence=COLORWAY)
+        fig = px.box(df, x=x_col, y=y_col if y_col else None)
     elif plot_type == "scatter":
         if not y_col:
             raise ValueError("y_col is required for scatter plot")
-        fig = px.scatter(df, x=x_col, y=y_col, color_discrete_sequence=COLORWAY)
+        fig = px.scatter(df, x=x_col, y=y_col)
     elif plot_type == "line" and is_time_series:
         # For time series data, create a line plot
-        fig = px.line(df, x=x_col, y=y_col if y_col else None, color_discrete_sequence=COLORWAY)
+        fig = px.line(df, x=x_col, y=y_col if y_col else None)
+    elif plot_type == "stacked_bar":
+        if not y_col:
+            raise ValueError("y_col is required for stacked bar plot")
+        # Create a stacked bar chart
+        fig = px.bar(df, x=x_col, y=y_col, color=x_col)
+    elif plot_type == "area":
+        if not y_col:
+            raise ValueError("y_col is required for area plot")
+        # Create an area chart
+        fig = px.area(df, x=x_col, y=y_col)
+    elif plot_type == "pie":
+        # Create a pie chart
+        value_counts = df[x_col].value_counts()
+        fig = px.pie(values=value_counts.values, names=value_counts.index)
+    elif plot_type == "heatmap":
+        if not y_col:
+            raise ValueError("y_col is required for heatmap")
+        # Create a correlation heatmap
+        numeric_df = df[[x_col, y_col]].select_dtypes(include=[np.number])
+        if len(numeric_df.columns) >= 2:
+            corr_matrix = numeric_df.corr()
+            fig = px.imshow(corr_matrix, text_auto=True, aspect="auto")
+        else:
+            raise ValueError("Heatmap requires numeric columns")
+    elif plot_type == "violin":
+        # Create a violin plot
+        fig = px.violin(df, y=x_col)
+    elif plot_type == "density":
+        # Create a density plot (using histogram with density)
+        fig = px.histogram(df, x=x_col, histnorm='density')
     else:
         raise ValueError(f"Unsupported plot type: {plot_type}")
     
-    # Update layout with better labels; rely on Plotly defaults for colors/styles
+    # Update layout with better labels and dark theme
     fig.update_layout(
         title=labels['title'],
         xaxis_title=labels['xaxis'],
         yaxis_title=labels['yaxis'],
-        template=None,
-        font=dict(size=12),
+        template='plotly_dark',
+        font=dict(size=12, color='white'),  # Ensure text is white
         margin=dict(t=50, l=50, r=50, b=50),
-        showlegend=True
+        showlegend=True,
+        # Set dark background colors that work for both display and export
+        plot_bgcolor='rgba(17, 17, 17, 1)',  # Dark background for plot area
+        paper_bgcolor='rgba(17, 17, 17, 1)',  # Dark background for paper
+        # Ensure axis colors are visible on dark background
+        xaxis=dict(
+            gridcolor='rgba(128, 128, 128, 0.3)',
+            linecolor='rgba(128, 128, 128, 0.8)',
+            tickcolor='rgba(128, 128, 128, 0.8)',
+            title_font_color='white',
+            tickfont_color='white'
+        ),
+        yaxis=dict(
+            gridcolor='rgba(128, 128, 128, 0.3)',
+            linecolor='rgba(128, 128, 128, 0.8)',
+            tickcolor='rgba(128, 128, 128, 0.8)',
+            title_font_color='white',
+            tickfont_color='white'
+        )
     )
     
-    # Add hover template only (let Plotly handle trace colors via color_discrete_sequence)
+    # Explicitly set colors for traces to ensure they work in both display and PNG export
+    # Define a color palette that works well with dark theme
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    
+    # Update traces with explicit colors
+    for i, trace in enumerate(fig.data):
+        if hasattr(trace, 'marker'):
+            trace.marker.color = colors[i % len(colors)]
+        if hasattr(trace, 'line'):
+            trace.line.color = colors[i % len(colors)]
+        if hasattr(trace, 'fillcolor'):
+            trace.fillcolor = colors[i % len(colors)]
+    
+    # Add hover template
     if is_time_series:
         fig.update_traces(
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>%{y}<extra></extra>"
