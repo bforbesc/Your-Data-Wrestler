@@ -14,7 +14,11 @@ import hashlib
 import json
 from functools import lru_cache
 import numpy as np
+import streamlit as st
 
+# Ensure OPENAI_API_KEY is available in os.environ when running on Streamlit Cloud
+if "OPENAI_API_KEY" in st.secrets:
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
 # ----------------------
 # JSON parsing utilities
