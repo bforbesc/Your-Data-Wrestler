@@ -1,11 +1,11 @@
 streamlit==1.32.0
 pandas==2.2.1
 openai==1.83.0
-plotly==5.15.0
+plotly==5.14.0
 python-dotenv==1.0.1
 kaleido==0.2.1
 openpyxl==3.1.2
-numpy>=1.26.0,<=1.26.4
-pillow>=10.0.0
+numpy==1.26.4
+pillow==10.4.0
 tenacity>=8.0.0
 packaging>=21.0 
