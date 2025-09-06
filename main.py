@@ -713,7 +713,12 @@ if uploaded_file is not None:
                 fig = item.get("fig")
                 label = item.get("label", "Plot")
                 base = item.get("filename", "plot")
-                st.plotly_chart(fig, use_container_width=True)
+                
+                if PLOTLY_AVAILABLE:
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("⚠️ Visualization features are not available. Plotly could not be loaded.")
+                    st.info("Please check the app logs for more details about the missing dependencies.")
                 try:
                     html = fig.to_html(
                         include_plotlyjs='cdn',

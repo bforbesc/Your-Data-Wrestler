@@ -625,6 +625,10 @@ Format as JSON:
 
 def create_visualization(df: pd.DataFrame, plot_type: str, x_col: str, y_col: Optional[str] = None) -> go.Figure:
     """Create a Plotly visualization based on the specified type."""
+    if not PLOTLY_AVAILABLE:
+        # Return a dummy figure if plotly is not available
+        return go.Figure()
+    
     # Get better labels using OpenAI
     labels = get_plot_labels(df, plot_type, x_col, y_col)
     
