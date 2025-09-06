@@ -1,29 +1,8 @@
-# Matrix Theme Colors Reference
-# Neon Green     - "#00FF00"
-# Light Green    - "#66FF66"
-# Dark Green     - "#006400"
-# White          - "#FFFFFF"
-# Soft Black     - "#0A0A0A"
-# True Black     - "#000000"
-
-[theme]
-primaryColor = "#00FF00"               # Neon Green
-backgroundColor = "#000000"            # True Black (main background)
-secondaryBackgroundColor = "#0A0A0A"   # Soft Black (cards, sidebars, etc.)
-textColor = "#FFFFFF"                  # main text
-font = "monospace"                     # Terminal-style font (Matrix vibe)
-
-[button]
-backgroundColor = "#00FF00"            # Neon Green (button base)
-textColor = "#000000"                  # Black text (on buttons)
-hoverColor = "#00FF00"                 # Neon Green (on hover)
-hoverTextColor = "#000000"             # Black text (on hover)
-
-[checkbox]
-backgroundColor = "#00FF00"            # Neon Green (checkbox fill)
-textColor = "#00FF00"                  # Neon Green (label text)
-hoverColor = "#00FF00"                 # Neon Green (hover highlight)
-
 [server]
-enableCORS = false                     # Cross-Origin requests disabled
-enableXsrfProtection = false           # Cross-Site Request Forgery protection disabled
+headless = true
+port = 8501
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
