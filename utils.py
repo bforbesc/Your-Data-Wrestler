@@ -1,20 +1,21 @@
 """
 Helper functions for the data analysis app.
+AI integration powered by Strands Agents SDK with OpenAI.
 """
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from openai import OpenAI
 import os
 from typing import Dict, List, Tuple, Optional
 from prompts import ANALYSIS_PROMPT, CLEANING_SUGGESTIONS_PROMPT, VISUALIZATION_SUGGESTIONS_PROMPT
 from dotenv import load_dotenv
 import hashlib
 import json
-from functools import lru_cache
 import numpy as np
 import streamlit as st
+from strands import Agent, tool
+from strands.models import OpenAIModel
 
 # Ensure OPENAI_API_KEY is available in os.environ when running on Streamlit Cloud
 if "OPENAI_API_KEY" in st.secrets:
@@ -76,56 +77,145 @@ def _parse_json_safe(text: str) -> Optional[dict]:
 # Load environment variables from .env file
 load_dotenv()
 
-# Lazy OpenAI client initialization to avoid crashes when SSL/CA bundle is misconfigured
-_openai_client = None
+# ----------------------
+# Module-level DataFrame state shared with Strands tools
+# ----------------------
+_current_df: Optional[pd.DataFrame] = None
 
-def _get_openai_client():
-    global _openai_client
-    if _openai_client is not None:
-        return _openai_client
-    api_key = os.getenv('OPENAI_API_KEY')
+# ----------------------
+# Strands tools — the agent can call these to inspect the dataset directly
+# ----------------------
+
+@tool
+def list_columns() -> str:
+    """List all column names and their data types in the current dataset."""
+    if _current_df is None:
+        return "No dataset loaded."
+    return json.dumps({col: str(dtype) for col, dtype in _current_df.dtypes.items()})
+
+
+@tool
+def get_column_statistics(column_name: str) -> str:
+    """Get descriptive statistics for a specific column in the dataset."""
+    if _current_df is None:
+        return "No dataset loaded."
+    if column_name not in _current_df.columns:
+        return json.dumps({"error": f"Column '{column_name}' not found.",
+                           "available_columns": list(_current_df.columns)})
+    col = _current_df[column_name]
+    stats: Dict = {
+        "dtype": str(col.dtype),
+        "missing_count": int(col.isnull().sum()),
+        "missing_pct": round(float(col.isnull().mean()) * 100, 2),
+    }
+    if pd.api.types.is_numeric_dtype(col):
+        desc = col.describe()
+        stats.update({
+            "min": float(desc["min"]),
+            "max": float(desc["max"]),
+            "mean": float(desc["mean"]),
+            "std": float(desc["std"]),
+            "q25": float(desc["25%"]),
+            "median": float(desc["50%"]),
+            "q75": float(desc["75%"]),
+        })
+    else:
+        stats["unique_count"] = int(col.nunique())
+        stats["top_values"] = {str(k): int(v) for k, v in col.value_counts().head(5).items()}
+    return json.dumps(stats)
+
+
+@tool
+def get_missing_value_info() -> str:
+    """Get missing value counts and percentages for all columns in the dataset."""
+    if _current_df is None:
+        return "No dataset loaded."
+    missing_pct = (_current_df.isnull().sum() / len(_current_df) * 100).round(2)
+    missing_count = _current_df.isnull().sum()
+    result = {
+        col: {"count": int(missing_count[col]), "pct": float(missing_pct[col])}
+        for col in _current_df.columns
+    }
+    return json.dumps(result)
+
+
+@tool
+def get_sample_rows(n_rows: int = 5) -> str:
+    """Get the first n rows of the dataset as a JSON array of records."""
+    if _current_df is None:
+        return "No dataset loaded."
+    return _current_df.head(n_rows).to_json(orient="records", default_handler=str)
+
+
+@tool
+def check_duplicates() -> str:
+    """Check how many duplicate rows exist in the dataset."""
+    if _current_df is None:
+        return "No dataset loaded."
+    dup_count = int(_current_df.duplicated().sum())
+    total = len(_current_df)
+    return json.dumps({
+        "duplicate_rows": dup_count,
+        "total_rows": total,
+        "duplicate_pct": round(dup_count / total * 100, 2),
+    })
+
+
+# ----------------------
+# Strands model singleton and agent factory
+# ----------------------
+_strands_model: Optional[OpenAIModel] = None
+_response_cache: Dict[str, str] = {}
+_DATA_TOOLS = [list_columns, get_column_statistics, get_missing_value_info,
+               get_sample_rows, check_duplicates]
+
+
+def _get_strands_model() -> Optional[OpenAIModel]:
+    """Lazily create and cache the Strands OpenAI model instance."""
+    global _strands_model
+    if _strands_model is not None:
+        return _strands_model
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
     try:
-        _openai_client = OpenAI(api_key=api_key)
-        return _openai_client
+        _strands_model = OpenAIModel(
+            client_args={"api_key": api_key},
+            model_id="gpt-3.5-turbo",
+            params={"temperature": 0.7, "max_tokens": 1000},
+        )
+        return _strands_model
     except Exception:
-        # If client cannot be created (e.g., SSL CA path invalid), disable AI features gracefully
         return None
 
-# Cache for storing API responses
-response_cache = {}
 
-def get_cache_key(prompt: str) -> str:
-    """Generate a cache key for a prompt."""
-    return hashlib.md5(prompt.encode()).hexdigest()
+def _call_agent(prompt: str, df: pd.DataFrame, use_tools: bool = True) -> str:
+    """Invoke a Strands agent with the given prompt.
 
-@lru_cache(maxsize=100)
-def get_openai_response(prompt: str) -> str:
-    """Get response from OpenAI API with caching."""
-    cache_key = get_cache_key(prompt)
-    
-    # Check cache first
-    if cache_key in response_cache:
-        return response_cache[cache_key]
-    
-    client = _get_openai_client()
-    if client is None:
+    When use_tools=True the agent may call the data-inspection tools above to
+    examine the DataFrame directly, producing more grounded responses.
+    Responses are MD5-cached to avoid redundant API calls.
+    """
+    global _current_df
+    _current_df = df
+
+    cache_key = hashlib.md5(prompt.encode()).hexdigest()
+    if cache_key in _response_cache:
+        return _response_cache[cache_key]
+
+    model = _get_strands_model()
+    if model is None:
         return ""
+
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=500
-        )
-        result = response.choices[0].message.content
-        
-        # Store in cache
-        response_cache[cache_key] = result
-        return result
+        tools = _DATA_TOOLS if use_tools else []
+        agent = Agent(model=model, tools=tools)
+        result = agent(prompt)
+        text = str(result)
+        _response_cache[cache_key] = text
+        return text
     except Exception as e:
-        print(f"Error calling OpenAI API: {str(e)}")
+        print(f"Error calling Strands agent: {e}")
         return ""
 
 def get_dataset_info(df: pd.DataFrame) -> Dict:
@@ -138,23 +228,20 @@ def get_dataset_info(df: pd.DataFrame) -> Dict:
     }
 
 def analyze_data(df: pd.DataFrame, question: str) -> str:
-    """Analyze data using OpenAI API with optimized prompt."""
+    """Analyze data using a Strands agent with data-inspection tools."""
     info = get_dataset_info(df)
-    
-    # Optimize prompt to use fewer tokens
     prompt = ANALYSIS_PROMPT.format(
         num_rows=info["num_rows"],
         num_cols=info["num_cols"],
-        column_info=json.dumps(info["column_info"]),  # Convert to JSON string to reduce tokens
-        missing_values=json.dumps(info["missing_values"]),  # Convert to JSON string to reduce tokens
+        column_info=json.dumps(info["column_info"]),
+        missing_values=json.dumps(info["missing_values"]),
         question=question
     )
-    return get_openai_response(prompt)
+    return _call_agent(prompt, df, use_tools=True)
 
 def get_cleaning_suggestions(df: pd.DataFrame, domain: str) -> dict:
-    """Get data cleaning suggestions using OpenAI API with structured approach."""
+    """Get data cleaning suggestions using a Strands agent with data-inspection tools."""
     info = get_dataset_info(df)
-    
     prompt = CLEANING_SUGGESTIONS_PROMPT.format(
         num_rows=info["num_rows"],
         num_cols=info["num_cols"],
@@ -162,7 +249,7 @@ def get_cleaning_suggestions(df: pd.DataFrame, domain: str) -> dict:
         missing_values=json.dumps(info["missing_values"]),
         domain=domain
     )
-    response = get_openai_response(prompt)
+    response = _call_agent(prompt, df, use_tools=True)
     
     # Parse the structured response and map to supported cleaning actions
     options = _parse_cleaning_suggestions(response, df)
@@ -416,20 +503,18 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
     return False
 
 def get_visualization_suggestions(df: pd.DataFrame, domain: str) -> dict:
-    """Get visualization suggestions using OpenAI API with optimized prompt."""
+    """Get visualization suggestions using a Strands agent with data-inspection tools."""
     info = get_dataset_info(df)
-    
-    # Get visualization suggestions using the new prompt
     prompt = VISUALIZATION_SUGGESTIONS_PROMPT.format(
         num_rows=info["num_rows"],
         num_cols=info["num_cols"],
-        column_info=json.dumps(info["column_info"]),  # Convert to JSON string to reduce tokens
+        column_info=json.dumps(info["column_info"]),
         domain=domain
     )
-    response = get_openai_response(prompt)
-    
-    # Parse the response to extract structured suggestions
-    prompt = f"""Given these visualization suggestions:
+    response = _call_agent(prompt, df, use_tools=True)
+
+    # Second pass: convert free-text suggestions to structured JSON
+    json_prompt = f"""Given these visualization suggestions:
 {response}
 
 Convert them to JSON format with this EXACT structure:
@@ -455,8 +540,8 @@ RULES:
 6. Generate exactly 3-5 suggestions maximum
 
 Dataset columns available: {list(df.columns)}"""
-    
-    structured_response = get_openai_response(prompt)
+
+    structured_response = _call_agent(json_prompt, df, use_tools=False)
     parsed = _parse_json_safe(structured_response)
     if isinstance(parsed, dict):
         # Ensure required keys exist
@@ -601,8 +686,7 @@ Dataset columns available: {list(df.columns)}"""
     }
 
 def get_plot_labels(df: pd.DataFrame, plot_type: str, x_col: str, y_col: Optional[str] = None) -> Dict[str, str]:
-    """Generate better plot labels using OpenAI with optimized prompt."""
-    # Optimize prompt to use fewer tokens
+    """Generate better plot labels using a Strands agent."""
     prompt = f"""Generate plot labels for:
 Type: {plot_type}
 X: {x_col}
@@ -615,12 +699,11 @@ Format as JSON:
     "xaxis": "X-axis label",
     "yaxis": "Y-axis label"
 }}"""
-    
-    response = get_openai_response(prompt)
+
+    response = _call_agent(prompt, df, use_tools=False)
     try:
         return json.loads(response)
-    except:
-        # Fallback to default labels if parsing fails
+    except Exception:
         return {
             'title': f"{plot_type.title()} Plot of {x_col}" + (f" vs {y_col}" if y_col else ""),
             'xaxis': x_col,
@@ -767,19 +850,16 @@ def apply_quick_fixes(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def infer_domain(df: pd.DataFrame, filename: str) -> str:
-    """Infer the domain of the dataset using OpenAI API with optimized prompt."""
+    """Infer the domain of the dataset using a Strands agent with data-inspection tools."""
     info = get_dataset_info(df)
-    
-    # Optimize prompt to use fewer tokens
     prompt = f"""Analyze dataset:
 File: {filename}
 Columns: {json.dumps(info['column_info'])}
 Rows: {info['num_rows']}
 
 Respond with domain (e.g., "Healthcare - Patient Records", "E-commerce - Sales")."""
-    
-    domain = get_openai_response(prompt)
+
+    domain = _call_agent(prompt, df, use_tools=True)
     if isinstance(domain, str) and domain.strip():
         return domain.strip()
-    # Fallback domain if AI unavailable
     return "General - Tabular Data"
