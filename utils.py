@@ -381,6 +381,11 @@ def _get_applicable_cleaning_actions(df: pd.DataFrame, action_mapping: dict, des
     
     return options
 
+def _is_text_column(col: pd.Series) -> bool:
+    """Return True for string/object columns across pandas versions (2.x and 3.x)."""
+    return pd.api.types.is_object_dtype(col) or pd.api.types.is_string_dtype(col)
+
+
 def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
     """Check if a cleaning action is applicable to the dataset."""
     if action_type == "remove_high_missing":
@@ -409,7 +414,7 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
     elif action_type == "lowercase_strings":
         # Only suggest if there are string columns with significant mixed case
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if _is_text_column(df[col]):
                 sample_values = df[col].dropna().astype(str).head(100)
                 if len(sample_values) > 0:
                     # Count how many values have uppercase letters
@@ -421,7 +426,7 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
     elif action_type == "strip_whitespace":
         # Only suggest if there are string columns with significant whitespace issues
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if _is_text_column(df[col]):
                 sample_values = df[col].dropna().astype(str).head(100)
                 if len(sample_values) > 0:
                     # Count how many values have whitespace issues
@@ -433,7 +438,7 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
     elif action_type == "convert_numeric":
         # Only suggest if there are string columns that look like numbers
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if _is_text_column(df[col]):
                 sample_values = df[col].dropna().astype(str).head(100)
                 if len(sample_values) > 0:
                     # More strict numeric detection
@@ -464,7 +469,7 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
     elif action_type == "standardize_dates":
         # Only suggest if there are columns that look like dates but aren't datetime
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if _is_text_column(df[col]):
                 sample_values = df[col].dropna().astype(str).head(100)
                 # More strict date detection - must look like actual dates
                 date_like_count = 0
@@ -485,7 +490,7 @@ def _is_action_applicable(action_type: str, df: pd.DataFrame) -> bool:
     elif action_type == "fix_data_types":
         # Only suggest if there are obvious type mismatches
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if _is_text_column(df[col]):
                 sample_values = df[col].dropna().astype(str).head(100)
                 if len(sample_values) > 0:
                     # Check if most values look like numbers but are stored as strings
@@ -550,7 +555,7 @@ Dataset columns available: {list(df.columns)}"""
         if not isinstance(options, list) or not options:
             # Create comprehensive fallback suggestions based on data types
             numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-            categorical_cols = [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])]
+            categorical_cols = [col for col in df.columns if isinstance(df[col].dtype, pd.CategoricalDtype) or _is_text_column(df[col])]
             
             options = []
             suggestion_count = 0
@@ -659,7 +664,7 @@ Dataset columns available: {list(df.columns)}"""
 
     # Fallback to default structure if parsing fails
     numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-    categorical_cols = [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])]
+    categorical_cols = [col for col in df.columns if isinstance(df[col].dtype, pd.CategoricalDtype) or _is_text_column(df[col])]
     
     fallback_options = []
     if numeric_cols:
@@ -812,9 +817,9 @@ def create_visualization(df: pd.DataFrame, plot_type: str, x_col: str, y_col: Op
     # Define a color palette that works well with dark theme
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
     
-    # Update traces with explicit colors
+    # Update traces with explicit colors (pie traces use a colors array, not marker.color)
     for i, trace in enumerate(fig.data):
-        if hasattr(trace, 'marker'):
+        if hasattr(trace, 'marker') and getattr(trace, 'type', '') != 'pie':
             trace.marker.color = colors[i % len(colors)]
         if hasattr(trace, 'line'):
             trace.line.color = colors[i % len(colors)]
