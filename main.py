@@ -5,6 +5,7 @@ Main Streamlit app for interactive data analysis.
 
 import streamlit as st
 import pandas as pd
+from streamlit.errors import StreamlitAPIException
 from utils import (
     get_dataset_info,
     analyze_data,
@@ -18,11 +19,14 @@ import tempfile
 import os
 
 # Page config
-st.set_page_config(
-    page_title="Your Data Wrestler",
-    page_icon="🤼‍♀️",
-    layout="wide"
-)
+try:
+    st.set_page_config(
+        page_title="Your Data Wrestler",
+        page_icon="🤼‍♀️",
+        layout="wide"
+    )
+except StreamlitAPIException:
+    pass
 
 # Custom CSS for Matrix-style headings
 st.markdown("""
