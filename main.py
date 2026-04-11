@@ -56,7 +56,8 @@ st.title("Your Data Wrestler")
 st.write("Upload a file to begin analyzing your data.")
 
 # File uploader
-uploaded_file = st.file_uploader("Choose a file", type=["csv", "txt", "xlsx", "xls"])
+test_uploaded_file = st.session_state.get("_test_uploaded_file")
+uploaded_file = test_uploaded_file or st.file_uploader("Choose a file", type=["csv", "txt", "xlsx", "xls"])
 
 # Sidebar
 st.sidebar.title("Settings")
@@ -81,6 +82,8 @@ if uploaded_file is not None:
     # Read the file based on its type
     file_extension = uploaded_file.name.split('.')[-1].lower()
     try:
+        if hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(0)
         if file_extension == 'csv':
             df = pd.read_csv(uploaded_file)
         elif file_extension == 'txt':

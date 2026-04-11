@@ -1,6 +1,6 @@
 # 🤼 Your Data Wrestler 
 
-An intelligent Streamlit application that transforms raw data into actionable insights through AI-powered analysis, automated cleaning, and dynamic visualizations.
+An intelligent Streamlit application that transforms raw data into actionable insights through agentic AI-powered analysis, automated cleaning, and dynamic visualizations.
 
 🔗 [https://your-data-wrestler.streamlit.app/](https://your-data-wrestler.streamlit.app/)
 
@@ -39,6 +39,7 @@ An intelligent Streamlit application that transforms raw data into actionable in
 - **Interactive Charts** - Powered by Plotly for rich interactivity
 
 ### 🎯 **Smart Features**
+- **Agentic Analysis** - Uses Strands Agents with OpenAI models for tool-using data reasoning
 - **Domain Detection** - Automatically identifies data context (healthcare, e-commerce, etc.)
 - **Editable Domain Context** - Customize analysis focus
 - **Session Management** - Maintains state across interactions
@@ -91,9 +92,10 @@ An intelligent Streamlit application that transforms raw data into actionable in
    type nul > .env  # On Windows
    ```
    
-   Add your OpenAI API key:
+   Add your OpenAI API key and optional model override:
    ```
    OPENAI_API_KEY=your_openai_api_key_here
+   OPENAI_MODEL=gpt-4.1-mini
    ```
 
 ### Quick Start
@@ -102,6 +104,12 @@ streamlit run main.py
 ```
 
 The app will be available at `http://localhost:8501`
+
+## Testing
+
+```bash
+python -m unittest discover -s tests -v
+```
 
 ## Usage
 
@@ -160,10 +168,11 @@ The app will be available at `http://localhost:8501`
 ## Technical Details
 
 ### Dependencies
-- **Streamlit** (1.32.0) - Web application framework
-- **Pandas** (2.2.1) - Data manipulation and analysis
-- **OpenAI** (1.83.0) - AI-powered analysis and insights
-- **Plotly** (5.19.0) - Interactive visualizations
+- **Streamlit** (1.56.0) - Web application framework
+- **Pandas** (2.2.3) - Data manipulation and analysis
+- **Strands Agents** - Agent framework for tool-using workflows
+- **OpenAI** (1.83.0) - Model provider used by the agent
+- **Plotly** (5.24.1) - Interactive visualizations
 - **Python-dotenv** (1.0.1) - Environment variable management
 - **Kaleido** (0.2.1) - Static image export for Plotly
 - **Openpyxl** (3.1.2) - Excel file support
@@ -188,14 +197,17 @@ The app will be available at `http://localhost:8501`
 
 ## API Usage
 
-This application uses OpenAI's GPT-3.5 API for:
+This application uses Strands Agents with your OpenAI API key for:
 - Natural language data analysis
 - Data cleaning suggestions
 - Visualization recommendations
 - Domain context detection
+- Tool-using, agentic inspection of uploaded datasets
 
 **Important Notes:**
 - Requires a valid OpenAI API key
+- Strands is configured to use your `OPENAI_API_KEY`
+- You can optionally set `OPENAI_MODEL` to change the backing OpenAI model
 - API usage is charged per request
 - Ensure sufficient credits in your OpenAI account
 - Consider data privacy when uploading sensitive information

@@ -14,12 +14,24 @@ import hashlib
 import json
 import numpy as np
 import streamlit as st
-from strands import Agent, tool
-from strands.models import OpenAIModel
+from openai import OpenAI
+
+try:
+    from strands import Agent, tool
+    from strands.models import OpenAIModel
+except Exception:
+    Agent = None
+    OpenAIModel = None
+
+    def tool(func):
+        return func
 
 # Ensure OPENAI_API_KEY is available in os.environ when running on Streamlit Cloud
-if "OPENAI_API_KEY" in st.secrets:
-    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+try:
+    if "OPENAI_API_KEY" in st.secrets:
+        os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+except Exception:
+    pass
 
 # ----------------------
 # JSON parsing utilities
@@ -81,6 +93,46 @@ load_dotenv()
 # Module-level DataFrame state shared with Strands tools
 # ----------------------
 _current_df: Optional[pd.DataFrame] = None
+_openai_client = None
+
+
+def _get_response_value(obj, key, default=None):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _extract_response_text(response) -> str:
+    output_text = _get_response_value(response, "output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+
+    output = _get_response_value(response, "output", []) or []
+    text_parts = []
+
+    for item in output:
+        content = _get_response_value(item, "content", []) or []
+        for entry in content:
+            if _get_response_value(entry, "type") in {"output_text", "text"}:
+                text_value = _get_response_value(entry, "text", "")
+                if isinstance(text_value, str) and text_value:
+                    text_parts.append(text_value)
+
+    return "\n".join(text_parts).strip()
+
+
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        _openai_client = OpenAI(api_key=api_key)
+        return _openai_client
+    except Exception:
+        return None
 
 # ----------------------
 # Strands tools — the agent can call these to inspect the dataset directly
@@ -175,13 +227,15 @@ def _get_strands_model() -> Optional[OpenAIModel]:
     global _strands_model
     if _strands_model is not None:
         return _strands_model
+    if OpenAIModel is None:
+        return None
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
     try:
         _strands_model = OpenAIModel(
             client_args={"api_key": api_key},
-            model_id="gpt-3.5-turbo",
+            model_id=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
             params={"temperature": 0.7, "max_tokens": 1000},
         )
         return _strands_model
@@ -204,18 +258,33 @@ def _call_agent(prompt: str, df: pd.DataFrame, use_tools: bool = True) -> str:
         return _response_cache[cache_key]
 
     model = _get_strands_model()
-    if model is None:
+    if model is not None and Agent is not None:
+        try:
+            tools = _DATA_TOOLS if use_tools else []
+            agent = Agent(model=model, tools=tools)
+            result = agent(prompt)
+            text = str(result)
+            _response_cache[cache_key] = text
+            return text
+        except Exception as e:
+            print(f"Error calling Strands agent: {e}")
+
+    client = _get_openai_client()
+    if client is None:
         return ""
 
     try:
-        tools = _DATA_TOOLS if use_tools else []
-        agent = Agent(model=model, tools=tools)
-        result = agent(prompt)
-        text = str(result)
+        response = client.responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            input=prompt,
+            temperature=0.7,
+            max_output_tokens=1000,
+        )
+        text = _extract_response_text(response)
         _response_cache[cache_key] = text
         return text
     except Exception as e:
-        print(f"Error calling Strands agent: {e}")
+        print(f"Error calling OpenAI API: {e}")
         return ""
 
 def get_dataset_info(df: pd.DataFrame) -> Dict:
