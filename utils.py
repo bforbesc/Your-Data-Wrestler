@@ -15,6 +15,7 @@ import json
 import numpy as np
 import streamlit as st
 from openai import OpenAI
+from functools import lru_cache
 
 try:
     from strands import Agent, tool
@@ -218,8 +219,38 @@ def check_duplicates() -> str:
 # ----------------------
 _strands_model: Optional[OpenAIModel] = None
 _response_cache: Dict[str, str] = {}
+response_cache = _response_cache
 _DATA_TOOLS = [list_columns, get_column_statistics, get_missing_value_info,
                get_sample_rows, check_duplicates]
+
+
+def get_cache_key(prompt: str) -> str:
+    return hashlib.md5(prompt.encode()).hexdigest()
+
+
+@lru_cache(maxsize=100)
+def get_openai_response(prompt: str) -> str:
+    cache_key = get_cache_key(prompt)
+    if cache_key in _response_cache:
+        return _response_cache[cache_key]
+
+    client = _get_openai_client()
+    if client is None:
+        return ""
+
+    try:
+        response = client.responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            input=prompt,
+            temperature=0.7,
+            max_output_tokens=500,
+        )
+        text = _extract_response_text(response)
+        _response_cache[cache_key] = text
+        return text
+    except Exception as e:
+        print(f"Error calling OpenAI API: {e}")
+        return ""
 
 
 def _get_strands_model() -> Optional[OpenAIModel]:
