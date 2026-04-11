@@ -234,3 +234,5 @@ If you encounter any issues or have questions:
 ---
 
 **Made with ❤️ for data enthusiasts who want to wrestle their data into submission!** 🤼‍♂️ 
+
+Made with love by @bforbesc and Claudia ❤️
