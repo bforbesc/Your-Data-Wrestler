@@ -2,6 +2,8 @@
 
 An intelligent Streamlit application that transforms raw data into actionable insights through agentic AI-powered analysis, automated cleaning, and dynamic visualizations.
 
+Made data enthusiasts who want to wrestle their data into submission! 🤼‍♂️ 
+
 🔗 [https://your-data-wrestler.streamlit.app/](https://your-data-wrestler.streamlit.app/)
 
 ## Features
@@ -232,7 +234,5 @@ If you encounter any issues or have questions:
 3. Include error messages and steps to reproduce
 
 ---
-
-**Made with ❤️ for data enthusiasts who want to wrestle their data into submission!** 🤼‍♂️ 
 
 Made with love by @bforbesc and Claudia ❤️
