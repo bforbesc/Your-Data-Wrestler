@@ -4,7 +4,7 @@
 >
 > A historical experiment with explanations, examples, and source code.
 
-[📚 Learning hub](https://github.com/bforbesc/Data-AI-with-Forbes) · [🧭 Beginner guide](https://github.com/bforbesc/Data-AI-with-Forbes/blob/main/START_HERE.md) · [🌐 Build and deploy a data app](https://github.com/bforbesc/Data-AI-with-Forbes/tree/main/templates/streamlit-starter)
+[📚 Learning hub](https://github.com/bforbesc/Data-AI-with-Forbes) · [🧭 Beginner guide](https://github.com/bforbesc/Data-AI-with-Forbes/blob/main/START_HERE.md)
 
 ## The idea before the tools
 
