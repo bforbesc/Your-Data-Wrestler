@@ -2,7 +2,7 @@
 
 > **Learning case study** · 🧹 Data transformation · Data visualization · Generative AI · Agents
 >
-> An experiment preserved for teaching. You can learn from the explanation, sample, and code even if the original app no longer runs.
+> A historical experiment with explanations, examples, and source code.
 
 [📚 Learning hub](https://github.com/bforbesc/Data-AI-with-Forbes) · [🧭 Beginner guide](https://github.com/bforbesc/Data-AI-with-Forbes/blob/main/START_HERE.md) · [🌐 Build and deploy a data app](https://github.com/bforbesc/Data-AI-with-Forbes/tree/main/templates/streamlit-starter)
 
@@ -11,8 +11,6 @@
 **How can an AI assistant help with a table, and how do we check its work?**
 
 **Table and question → inspect with tools → propose an answer or change → verify**
-
-This is a study of an approach, rather than a recommendation to adopt an old app. First explain what happens in each step; only then look at the library or framework that implements it.
 
 | Tool in this project | What it does in the example |
 |---|---|
@@ -35,7 +33,7 @@ The app accepts files, summarizes their contents, answers questions in ordinary 
 
 ## Start here: no coding
 
-Try the [hosted app](https://your-data-wrestler.streamlit.app/) if available, or use an instructor's configured copy. The AI features need a valid OpenAI API key and can incur usage costs; ask your teacher to arrange access. Do not paste a key into a chat, GitHub file, or shared output. App availability is not guaranteed.
+Try the [hosted app](https://your-data-wrestler.streamlit.app/) if available, or set up a local copy using the developer reference below. AI features require a valid OpenAI API key and incur usage costs. Keep keys out of GitHub and shared outputs. Uploaded content may be sent to an external model provider; the included sample contains only fictional data.
 
 1. Open [the fictional practice orders](examples/practice_orders.csv) on GitHub and choose **Download raw file** near the top right. Keep the `.csv` extension.
 2. Upload the file using **Choose a file**. Each row is meant to be one order. The columns contain an order identifier, product category, number of units, and revenue in euros.
@@ -66,15 +64,9 @@ If you fill the blank with an average before removing the duplicate, the average
 
 </details>
 
-## For teachers
-
-Allow about 20–30 minutes. Start with the worksheet, then compare students' checks with the assistant's responses. Use only the fictional sample for the introductory lesson. Uploaded content can be sent to an external model provider; do not use private student, customer, or workplace data for this activity.
-
-A strong student outcome is a short explanation of which suggestion they accepted, which they questioned, and how they verified the result. The worksheet works without an app or paid API access.
-
 ## Optional: install and look inside
 
-Installation is for teachers or students ready to work with Python. The detailed reference below explains setup and features. Use Python 3.11, matching `runtime.txt`, and a separate environment. The original project may need maintenance as dependencies evolve.
+The developer reference below explains setup and features. Use Python 3.11, matching `runtime.txt`, and a separate environment. The original project may need maintenance as dependencies evolve.
 
 [main.py](main.py) builds the interface and applies selected cleaning actions. [utils.py](utils.py) contains data-inspection tools and AI calls. [prompts.py](prompts.py) contains instructions sent to the model. Start by finding the text of one button you used.
 
