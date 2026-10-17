@@ -1,8 +1,8 @@
 # Developer reference
 
-[← Beginner learning guide](../README.md) · [Learning hub](https://github.com/bforbesc/Data-AI-with-Forbes)
+[📚 Learning hub](https://github.com/bforbesc/data-ai-with-forbes) · [🧭 Beginner guide](https://github.com/bforbesc/data-ai-with-forbes/blob/main/START_HERE.md)
 
-Historical feature and setup reference. Start with the beginner guide for the teaching activity. These dependencies and AI integrations may need maintenance.
+Historical feature and setup reference. Start with the [project guide](../README.md) for the sample activity. These dependencies and AI integrations may need maintenance.
 
 An intelligent Streamlit application that transforms raw data into actionable insights through agentic AI-powered analysis, automated cleaning, and dynamic visualizations.
 
