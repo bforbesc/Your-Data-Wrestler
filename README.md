@@ -1,6 +1,6 @@
 # 🤼 Your Data Wrestler
 
-> **Learning case study** · 🧹 Data transformation · Data visualization · Generative AI · Agents
+> **Learning case study** · Data transformation · Data visualization · Generative AI · Agents
 >
 > A historical experiment with explanations, examples, and source code.
 
