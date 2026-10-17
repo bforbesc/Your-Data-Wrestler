@@ -1,0 +1,13 @@
+order_id,category,units,revenue_eur
+A001,books,1,10
+A002,toys,2,20
+A003,books,3,30
+A004,toys,4,40
+A005,books,5,50
+A006,toys,6,60
+A007,books,7,70
+A008,toys,8,80
+A009,books,9,90
+A010,toys,10,100
+A011,books,1,
+A001,books,1,10
